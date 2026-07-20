@@ -286,7 +286,8 @@ sequenceDiagram
     participant DB as PostgreSQL
     participant R as Redis / Celery broker
     participant W as Celery worker
-    participant E as Embedding provider
+    participant P as Plugin daemon
+    participant E as Embedding endpoint
     participant V as Vector DB
 
     User->>N: Upload/create knowledge document
@@ -299,8 +300,10 @@ sequenceDiagram
     R-->>W: Deliver queued task
     W->>DB: Load dataset/document metadata
     W->>F: Read document content/artifact
-    W->>E: Create embeddings as configured
-    E-->>W: Embedding vectors
+    W->>P: Dispatch embedding request
+    P->>E: Create embeddings as configured
+    E-->>P: Embedding vectors
+    P-->>W: Normalized embedding result
     W->>V: Write vector index
     W->>DB: Update indexing status/metadata
 
@@ -310,7 +313,7 @@ sequenceDiagram
     A-->>User: Current status
 ```
 
-Task source xác nhận document indexing là Celery task và chạy `IndexingRunner`; chi tiết parsing/chunking/embedding được kiểm chứng tiếp ở Chương 04. [S-012]
+Task source xác nhận document indexing là Celery task và chạy `IndexingRunner`; trong baseline này, model-provider dispatch cho embedding vẫn đi qua `plugin_daemon`, còn `Embedding endpoint` là provider external hoặc self-hosted đã cấu hình. Chi tiết parsing/chunking/embedding được kiểm chứng tiếp ở Chương 04. [S-012][S-038]
 
 ### Component inventory
 
@@ -425,7 +428,7 @@ Bind mount đơn giản và dễ backup ở single node, nhưng không cung cấ
 - [ ] Trace online request thực tế.
 - [ ] Celery ingestion/backlog test.
 - [ ] Failure injection và recovery timing.
-- [ ] Platform architect review và G1 sign-off.
+- [ ] Platform architect review và `DOC-G1` sign-off.
 
 ## Giới hạn/version caveats
 

@@ -1,10 +1,11 @@
 # Kế hoạch triển khai tài liệu kỹ thuật Dify AI self-hosted
 
 > **Nguồn yêu cầu:** `dify-research-brief.md`  
-> **Trạng thái:** Đang triển khai — draft vòng 1 cho Chương 00–19 và Phụ lục A–E đã hoàn tất; static QA đạt, còn runtime validation, specialist review và release gate G5  
+> **Trạng thái:** Đang triển khai — draft vòng 1 cho Chương 00–19 và Phụ lục A–F đã hoàn tất; internal specialist/editorial/novice desk cross-review đã thực hiện, còn deployable Kubernetes reference artifact, designated-owner sign-off, target-wiki conformance, deployment runtime validation và release gate `DOC-G5`
 > **Ngôn ngữ tài liệu final:** Tiếng Việt; giữ thuật ngữ kỹ thuật tiếng Anh và giải thích trong glossary  
 > **Định dạng:** Markdown; mọi sơ đồ được nhúng trực tiếp bằng Mermaid  
 > **Baseline phiên bản Dify:** Community `1.15.0` tại commit `3aa26fb6374bbd47e5469f7d7cc25f3e0075a60c`; docs snapshot `57a492d8063d1583c582b4c0444fb838c6dd3027`; khóa ngày `2026-07-16`
+> **Version-drift check:** Ngày `2026-07-20` phát hiện stable `1.16.0`; baseline `1.15.0` được giữ theo D-015, impact/revalidation theo G-053
 
 ## 1. Kết quả cần bàn giao
 
@@ -134,7 +135,7 @@ docs/
 | `09` LLMOps/observability | 2 | Logs, metrics, traces, prompt/model telemetry, evaluation; điểm tích hợp Langfuse/Opik/Arize Phoenix | Sơ đồ telemetry; bộ tín hiệu và alert tối thiểu |
 | `10` Editions & license | 1 | Community vs Enterprise vs Cloud; feature/limit/support; xác minh chính xác claim từ brief về nền Apache-2.0, điều kiện bổ sung và phân loại source-available; tác động sử dụng nội bộ/phân phối/cung cấp dịch vụ | Exact wording từ license của baseline; ma trận có nguồn; checklist Legal/Procurement; không đưa kết luận pháp lý thay Legal |
 | `11` Docker Compose | 1 | Prerequisite, quick start, cấu hình nâng cao, persistence, reverse proxy/TLS, health check, backup cơ bản, upgrade path và troubleshooting | Dựng lại trên môi trường sạch; smoke test và validation log |
-| `12` Kubernetes/Helm HA | 1 | Xác minh provenance/support status của chart; ingress, replica, worker scaling, HPA/PDB, stateful dependency, storage, affinity, multi-AZ và rollout; fallback nếu không có chart official được duy trì | Topology HA; liệt kê SPOF; reference deployment chạy được với smoke/rollout/load/failure-recovery test trước final; artifact có owner |
+| `12` Kubernetes/Helm HA | 1 | Xác minh provenance/support status của chart; ingress, replica, worker scaling, HPA/PDB, stateful dependency, storage, affinity, multi-AZ và rollout; fallback nếu không có chart official được duy trì | Topology HA; liệt kê SPOF; reference deployment phải qua smoke/rollout/load/failure-recovery trước khi gắn `Deployment-validated`; artifact có owner |
 | `13` Security hardening | 1 | SSO/LDAP, RBAC, audit theo edition; TLS, secret, network/egress, data flow, sandbox/plugin/tool risk, SSRF, prompt injection, exfiltration, PII; data classification, retention/deletion, encryption và evidence | Trust-zone/data-flow diagram; threat-control matrix; security baseline; compliance checklist tham số hóa |
 | `14` Model provider integration | 1 | OpenAI-compatible, Anthropic, Azure, Bedrock, Ollama/vLLM; auth, endpoint, network, timeout, retry, quota, residency, GPU boundary | Ít nhất một external API và một self-host path được kiểm chứng; bảng chọn provider |
 | `15` Operations, backup, upgrade, DR | 1 | State inventory, backup/restore order, migration, upgrade/rollback, monitoring, capacity, incident response, RPO/RTO và DR drill | Restore test hoặc nhãn design-reviewed; runbook upgrade/rollback/DR |
@@ -235,7 +236,7 @@ Các claim bắt buộc có evidence trực tiếp gồm:
 | WS4 | RAG & LLMOps | Ingestion/query pipeline, vector DB, evaluation và telemetry | WS2, WS5 | Pipeline mẫu và tiêu chí chất lượng/quan sát được xác định |
 | WS5 | Model platform | Model management, external provider, Ollama/vLLM | WS2 | Một external path và một self-host path được kiểm chứng |
 | WS6 | Docker Compose | Install, config, persistence, TLS, smoke test, troubleshooting | WS2, WS8A, WS9A | Clean-install lab thành công và có log kiểm chứng |
-| WS7 | Kubernetes/Helm | Chart provenance, HA topology, scale, storage, rollout | WS2, WS8A, WS9A | SPOF được nêu; reference deployment qua runtime/load/HA validation trước final |
+| WS7 | Kubernetes/Helm | Chart provenance, HA topology, scale, storage, rollout | WS2, WS8A, WS9A | SPOF được nêu; reference deployment qua runtime/load/HA validation trước khi gắn `Deployment-validated` |
 | WS8A | Edition/license baseline | Edition matrix, exact license wording, feature availability và câu hỏi Legal/Procurement | WS0 | Baseline review-ready trước khi chốt security/deployment recommendation |
 | WS8B | Security/compliance hardening | Identity, audit, network, secrets, data lifecycle, provider egress, threat/control và compliance evidence | WS2, WS6, WS7, WS8A | Security baseline, runtime control tests và compliance checklist hoàn chỉnh |
 | WS9A | Operations requirements | State inventory, backup boundary, SLO/RPO/RTO inputs, observability và capacity signals | WS2 | Requirement ảnh hưởng ngược vào storage/HA trước khi triển khai |
@@ -303,16 +304,16 @@ Sau WS2 có thể chạy song song bốn nhánh:
 
 | Sprint | Effort gợi ý | Nội dung | Deliverable/Gate |
 |---|---:|---|---|
-| Sprint 0 — Baseline | 1–2 ngày | Chốt version, nguồn, lab, chart provenance, template và coverage matrix | **G0:** Scope/version/source approved |
-| Sprint 1 — Architecture | 3–4 ngày | Component inventory, request/job/data flow, state ownership, edition/license draft | **G1:** Architecture reviewed; không còn component chưa rõ owner/state |
-| Sprint 2 — POC & core | 5–7 ngày | Docker Compose clean install, external/self-host model path, Workflow/RAG/Agent/MCP/Plugin drafts | **G2:** POC reproducible; core examples chạy hoặc được gắn nhãn đúng |
-| Sprint 3 — Production | 6–8 ngày | Kubernetes/Helm reference deployment, HA/SPOF, security, observability, backup/restore, upgrade/rollback, DR | **G3:** Runtime validation + security/ops review |
-| Sprint 4 — Decision | 3–4 ngày | 4 use case, Compose-vs-K8s matrix, POC checklist, cost model; CI/CD/IaC nếu áp dụng | **G4:** Scenario walkthrough đạt yêu cầu |
-| Sprint 5 — Hardening | 3–5 ngày | Cross-check, render Mermaid, link/TOC, consistency, novice-reader test, release assembly | **G5:** Final accepted |
+| Sprint 0 — Baseline | 1–2 ngày | Chốt version, nguồn, lab, chart provenance, template và coverage matrix | **DOC-G0:** Scope/version/source approved |
+| Sprint 1 — Architecture | 3–4 ngày | Component inventory, request/job/data flow, state ownership, edition/license draft | **DOC-G1:** Architecture reviewed; không còn component chưa rõ owner/state |
+| Sprint 2 — POC & core | 5–7 ngày | Docker Compose clean install, external/self-host model path, Workflow/RAG/Agent/MCP/Plugin drafts | **DOC-G2:** POC reproducible; core examples chạy hoặc được gắn nhãn đúng |
+| Sprint 3 — Production | 6–8 ngày | Kubernetes/Helm reference deployment, HA/SPOF, security, observability, backup/restore, upgrade/rollback, DR | **DOC-G3:** Runtime validation + security/ops review |
+| Sprint 4 — Decision | 3–4 ngày | 4 use case, Compose-vs-K8s matrix, POC checklist, cost model; CI/CD/IaC nếu áp dụng | **DOC-G4:** Scenario walkthrough đạt yêu cầu |
+| Sprint 5 — Hardening | 3–5 ngày | Cross-check, render Mermaid, link/TOC, consistency, novice-reader test, release assembly | **DOC-G5:** Final accepted |
 
 **Tổng effort tham khảo:** khoảng 21–30 author-days cho một tác giả chính; các reviewer chuyên môn và nhánh nghiên cứu có thể chạy song song. Đây không phải số ngày lịch.
 
-Sau G1 phải re-estimate riêng ba loại effort: **authoring**, **specialist review** và **lab/validation**; không dùng một con số gộp để cam kết lịch phát hành.
+Sau `DOC-G1` phải re-estimate riêng ba loại effort: **authoring**, **specialist review** và **lab/validation**; không dùng một con số gộp để cam kết lịch phát hành.
 
 ## 9. Quy trình viết chuẩn cho từng chương
 
@@ -401,9 +402,9 @@ Template bắt buộc cho mỗi chương:
 - Xác minh nguồn chart và maintenance/support status.
 - Nếu không có chart official được duy trì: chọn chart cộng đồng sau risk review hoặc tạo reference manifest/internal chart; pin version, ghi owner và trách nhiệm bảo trì.
 - Render manifest với values tham chiếu; kiểm tra secret, ingress, persistence và replica.
-- Trước bản final: deploy reference topology, scale stateless component, restart/fail pod và worker, mô phỏng dependency failure, rolling upgrade, restore dữ liệu đại diện, recovery và smoke test trên một cluster đại diện.
+- Trước khi gắn `Deployment-validated`: deploy reference topology, scale stateless component, restart/fail pod và worker, mô phỏng dependency failure, rolling upgrade, restore dữ liệu đại diện, recovery và smoke test trên một cluster đại diện.
 - Chạy load profile có đầu vào công khai; ghi concurrency, end-to-end latency, retrieval latency, model-provider latency, worker queue backlog, saturation và recovery time. Đây là baseline đo được, không phải capacity guarantee cho mọi use case.
-- Nếu chưa có cluster phù hợp: chỉ được phát hành **review draft** với nhãn `Config validated`/`Design reviewed`; không được gọi là final production-validated playbook.
+- Nếu chưa có cluster phù hợp: core guide vẫn có thể phát hành ở mức `Review-ready` khi thiết kế, provenance, test protocol, validation label và gap owner đã đầy đủ; không được gắn `Deployment-validated` hoặc dùng làm production sign-off.
 - Liệt kê từng single point of failure và control tương ứng.
 
 ### 11.3. Security
@@ -422,7 +423,7 @@ Template bắt buộc cho mỗi chương:
 
 - Lập inventory đầy đủ state/config/key/artifact cần backup.
 - Xác định restore order và tiêu chí xác nhận tính toàn vẹn.
-- Trước final, kiểm tra upgrade/migration/rollback path trên bản sao dữ liệu mẫu; nếu ứng dụng không hỗ trợ rollback trực tiếp, phải kiểm chứng chiến lược restore-based rollback và ghi rõ giới hạn.
+- Trước khi gắn `Deployment-validated`, kiểm tra upgrade/migration/rollback path trên bản sao dữ liệu mẫu; nếu ứng dụng không hỗ trợ rollback trực tiếp, phải kiểm chứng chiến lược restore-based rollback và ghi rõ giới hạn.
 - Định nghĩa dashboard, alert và on-call signals tối thiểu.
 - Dùng RPO/RTO dưới dạng biến đầu vào; không tự gán SLA khi doanh nghiệp chưa chốt.
 
@@ -435,36 +436,49 @@ Chọn một developer chưa dùng Dify và giao bốn bài test:
 3. Với một scenario mẫu, chọn use case, model path và topology; giải thích trade-off và cost drivers.
 4. Dùng runbook để thực hiện backup/restore hoặc upgrade/rollback, sau đó đọc dashboard/alert và xử lý một incident giả lập.
 
-Các điểm người đọc phải hỏi thêm được ghi lại thành issue và xử lý trước release.
+Ở mức `Review-ready`, reviewer phải hoàn tất desk walkthrough cho cả bốn bài và thực hiện được các bài không cần target runtime; các bước thực thi của bài 2 và 4 được giữ như deployment evidence. Ở mức `Deployment-validated`, bài 2 và 4 phải được chạy trên môi trường đại diện. Các điểm người đọc phải hỏi thêm được ghi lại thành issue và xử lý trước release tương ứng.
 
 ## 12. Review gates và vai trò
 
 | Gate | Nội dung duyệt | Reviewer đề xuất | Điều kiện qua gate |
 |---|---|---|---|
-| G0 | Scope, version, source, assumptions | Tech lead + tác giả | Baseline được khóa; source register đủ cho Tier 1 |
-| G1 | Architecture và edition matrix | Platform architect + Dify SME | Component/state/data flow nhất quán |
-| G2 | POC, provider và core capabilities | Developer reviewer | Clean install và ví dụ tối thiểu tái hiện được |
-| G3 | K8s, security, operations/DR | DevOps/SRE + Security | Reference deployment qua smoke/rollout/load/failure-recovery/restore; security controls và runbook được kiểm chứng |
-| G3-L | License/compliance review-readiness | Legal/Procurement hoặc owner được chỉ định | Exact wording, câu hỏi/rủi ro và caveat đã sẵn sàng để review; approval thực tế là deployment gate |
-| G4 | Use case, POC framework, cost | Architect + engineering manager | Scenario walkthrough tạo quyết định có lý do |
-| G5 | Final integration | Editor + novice reader | Link, TOC, citation, Mermaid, thuật ngữ và DoD đều đạt; đã chạy version-drift check |
+| DOC-G0 | Scope, version, source, assumptions | Tech lead + tác giả | Baseline được khóa; source register đủ cho Tier 1 |
+| DOC-G1 | Architecture và edition matrix | Platform architect + Dify SME | Component/state/data flow nhất quán |
+| DOC-G2 | POC, provider và core capabilities | Developer reviewer | Clean install và ví dụ tối thiểu tái hiện được |
+| DOC-G3 | K8s, security, operations/DR | DevOps/SRE + Security | Reference deployment qua smoke/rollout/load/failure-recovery/restore; security controls và runbook được kiểm chứng |
+| DOC-G3-L | License/compliance review-readiness | Legal/Procurement hoặc owner được chỉ định | Exact wording, câu hỏi/rủi ro và caveat đã sẵn sàng để review; approval thực tế là deployment gate |
+| DOC-G4 | Use case, POC framework, cost | Architect + engineering manager | Scenario walkthrough tạo quyết định có lý do |
+| DOC-G5 | Final integration | Editor + novice reader | Link, TOC, citation, Mermaid, thuật ngữ và DoD đều đạt; đã chạy version-drift check |
+
+### Mức trưởng thành của gate
+
+Mỗi gate được theo dõi ở hai mức độc lập:
+
+- `Review-ready`: nội dung, nguồn, caveat, test protocol, owner và evidence requirement đã đủ để specialist/reviewer đánh giá; mọi phần chưa chạy được vẫn giữ nhãn `RUNTIME-PENDING` hoặc gap ID.
+- `Deployment-validated`: một target profile/use-case/addendum cụ thể đã được khóa và toàn bộ runtime test, business input, approval và evidence áp dụng đã hoàn tất.
+
+`DOC-G5` có thể phát hành core guide khi các gate nội dung đạt `Review-ready` và QA biên tập/Mermaid/link hoàn tất. Trạng thái này không phải production sign-off. Chỉ một deployment profile có các gate `DOC-G2`/`DOC-G3`/`DOC-G4` áp dụng đạt `Deployment-validated` mới được gọi là production-validated.
+
+`DOC-G3-L Review-ready` chỉ xác nhận exact license source, câu hỏi, rủi ro và caveat đã sẵn sàng cho Legal/Procurement. Legal determination, entitlement và contract approval thực tế thuộc deployment-specific gate.
 
 ## 13. Definition of Done toàn tài liệu
 
-Tài liệu chỉ được phát hành khi:
+Hai lớp bàn giao được đánh giá độc lập. Core guide dùng các tiêu chí về content, source, validation label, consistency, Mermaid, link, editorial và usability ở mức desk walkthrough. Các tiêu chí cần daemon, cluster, provider/data thật, organization input hoặc approval thực tế chỉ bắt buộc trước trạng thái `Deployment-validated`; ở core guide chúng phải có procedure, owner, evidence contract và nhãn pending trung thực.
+
+Tài liệu chỉ được phát hành ở lớp tương ứng khi:
 
 - [ ] Dify version/tag, ngày kiểm chứng và lịch review major release xuất hiện rõ ở đầu bộ tài liệu.
 - [ ] Tier 1 có architecture, procedure, failure mode, checklist, security và operations implications.
 - [ ] Mỗi năng lực Tier 2 có chương độc lập, ví dụ tối thiểu, giới hạn và nguồn.
 - [ ] Mỗi use case Tier 3 giữ ở mức 1–2 trang theo renderer mục tiêu; editorial band mặc định 700–1.200 từ và tập trung vào tiêu chí quyết định.
-- [ ] Docker Compose có clean-install validation, smoke test, persistence và troubleshooting.
+- [ ] Với trạng thái `Deployment-validated`, Docker Compose có clean-install validation, smoke test, persistence và troubleshooting.
 - [ ] Kubernetes/Helm ghi rõ provenance/support status và mức độ lab validation thực tế.
-- [ ] Reference deployment Kubernetes/Helm đã qua smoke, rollout, load, failure/recovery và representative restore test; nếu chưa đạt chỉ được phát hành review draft.
+- [ ] Với trạng thái `Deployment-validated`, reference deployment Kubernetes/Helm đã qua smoke, rollout, load, failure/recovery và representative restore test. Nếu chưa đạt, core guide chỉ mang trạng thái `Review-ready` và giữ nguyên `RUNTIME-PENDING`/gap tương ứng.
 - [ ] Community/Enterprise/Cloud matrix được kiểm chứng đúng version.
 - [ ] License dùng exact wording từ nguồn chính thức, làm rõ hoặc hiệu chỉnh claim Apache-2.0 + điều kiện bổ sung/source-available của brief, và đủ review-ready cho Legal/Procurement.
 - [ ] External model API và self-host model path đều được mô tả; mức kiểm chứng được ghi rõ.
-- [ ] Backup/restore và upgrade/rollback đã được kiểm chứng trên dữ liệu mẫu; monitoring và DR có runbook/actionable checklist.
-- [ ] SSO/RBAC/audit hoặc compensating controls tương ứng đã có positive/negative runtime test theo edition áp dụng.
+- [ ] Với trạng thái `Deployment-validated`, backup/restore và upgrade/rollback đã được kiểm chứng trên dữ liệu mẫu; monitoring và DR có runbook/actionable checklist.
+- [ ] Với trạng thái `Deployment-validated`, SSO/RBAC/audit hoặc compensating controls tương ứng đã có positive/negative runtime test theo edition áp dụng.
 - [ ] Không có secret thật, internal hostname hoặc dữ liệu nhạy cảm trong tài liệu/config mẫu.
 - [ ] Mọi Mermaid render thành công trên renderer mục tiêu.
 - [ ] Mọi link nội bộ, heading anchor, TOC và source link đều hợp lệ.
@@ -472,8 +486,8 @@ Tài liệu chỉ được phát hành khi:
 - [ ] Không có mâu thuẫn giữa architecture, deployment, security, backup và cost model.
 - [ ] CI/CD/IaC baseline đã có; phần mở rộng có output hoặc `N/A` kèm lý do.
 - [ ] Trước release đã kiểm tra release notes/latest stable; nếu có version mới, tài liệu vẫn ghi rõ target version và delta quan trọng về MCP, plugin, license/deployment.
-- [ ] Không còn `TODO`, `TBD` hoặc claim quan trọng thiếu nguồn trong bản release.
-- [ ] Bốn bài usability test được hoàn thành; issue phát hiện đã được đóng trước final.
+- [ ] Không còn authoring placeholder hoặc trường chưa có owner trong core release. Owner-bound template field là hợp lệ khi owner, evidence cần cung cấp và deployment gate được nêu trong cùng hàng/bảng/mục; phải được thay bằng value/range hoặc explicit `N/A` trước recommendation hoặc deployment sign-off.
+- [ ] Core guide đã qua desk walkthrough của bốn bài usability; để gắn `Deployment-validated`, các bài runtime 2 và 4 đã được thực thi trên môi trường đại diện. Issue phát hiện đã được đóng trước release tương ứng.
 
 ## 14. Rủi ro và cách kiểm soát
 
@@ -509,7 +523,7 @@ Thứ tự công việc để bắt đầu ngay:
 
 ### Mốc đầu tiên nên đạt
 
-Mốc đầu tiên không phải “viết xong Chương 1”, mà là hoàn tất **G0 + G1**:
+Mốc đầu tiên không phải “viết xong Chương 1”, mà là hoàn tất **DOC-G0 + DOC-G1**:
 
 - Baseline phiên bản và nguồn đã khóa.
 - Cấu trúc tài liệu và coverage matrix đã duyệt.

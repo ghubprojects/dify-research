@@ -3,7 +3,8 @@
 > **Version áp dụng:** Dify Community `1.15.0 @ 3aa26fb…`  
 > **Docs snapshot:** `release/1.15.0 @ 57a492d…`  
 > **Ngày kiểm chứng:** `2026-07-16`  
-> **Trạng thái xác minh:** `Official-source verified` + `Design reviewed`; toàn bộ provider/endpoint lab là `RUNTIME-PENDING`  
+> **Trạng thái xác minh:** `Official-source verified` + `Design reviewed` qua cross-review nội bộ; specialist review và toàn bộ provider/endpoint lab vẫn `RUNTIME-PENDING`
+>
 > **Reviewer:** AI Platform, Network, Security, Privacy và FinOps review pending
 
 ## Mục tiêu
@@ -91,7 +92,7 @@ Current official Ollama plugin cho phép để trống API key khi nối local s
 
 ### 4. Network, TLS và proxy
 
-#### Reachability
+#### Khả năng kết nối
 
 - Endpoint name phải resolve được từ plugin runtime.
 - Với Docker, `localhost` trong container không phải host/model server. Official Ollama plugin hướng dẫn dùng host/LAN address có thể truy cập từ Dify container và dùng **host root**, không thêm `/api`. [S-089]
@@ -128,13 +129,13 @@ Những field feature như vision, function/tool call, streaming tool call hoặ
 | Embedding | `/embeddings`-compatible output, dimension ổn định | Index/query dùng cùng model/revision/dimension |
 | Rerank | Query + documents → index/score ordering | Top N/threshold, modality và quality test |
 
-vLLM supports several OpenAI-compatible endpoints, including Chat/Completions/Responses and Embeddings, plus rerank-compatible APIs depending served task/version. Parameters/features are endpoint/model/version sensitive; official docs explicitly note some fields are unsupported/ignored and model repository `generation_config.json` can affect defaults. [S-093]
+vLLM hỗ trợ nhiều endpoint tương thích OpenAI, gồm Chat, Completions, Responses và Embeddings; API rerank phụ thuộc tác vụ được phục vụ và phiên bản. Tham số và tính năng phụ thuộc tổ hợp endpoint–model–version; tài liệu chính thức lưu ý một số trường không được hỗ trợ hoặc bị bỏ qua, và `generation_config.json` trong repository của model có thể thay đổi giá trị mặc định. [S-093]
 
-Ollama exposes a partly OpenAI-compatible `/v1` surface, but native Ollama API and capability set are not identical to every OpenAI feature. [S-091] For Dify, choose native Ollama plugin unless the exact OpenAI-compatible path has passed the same test matrix.
+Ollama cung cấp bề mặt `/v1` tương thích một phần với OpenAI; API gốc và tập năng lực của Ollama không tương đương toàn bộ tính năng OpenAI. Với Dify, ưu tiên plugin Ollama chính thức; chỉ dùng đường OpenAI-compatible khi đường này vượt cùng ma trận kiểm thử. [S-091]
 
-### 6. Model and parameter mapping
+### 6. Ánh xạ model và tham số
 
-Capture mapping as a release artifact:
+Lưu bảng ánh xạ sau trong bộ artifact phát hành:
 
 | Concept | Dify/plugin field | Endpoint/server field | Validation |
 |---|---|---|---|
@@ -205,7 +206,7 @@ Tín hiệu tối thiểu:
 - output schema/tool-call validation failure;
 - credential alias, không log key; prompt/response chỉ theo redaction/retention policy.
 
-vLLM provides `/health`, `/v1/models` and Prometheus-compatible `/metrics` in current official docs. [S-093] Ollama compatibility docs list stream-usage support on applicable OpenAI-compatible responses; the exact native metrics and their mapping into Dify still require runtime verification. [S-091] Dify application logs/tracing are described in Chương 09; verify which fields reach each exporter before promising correlation. [S-073][S-075][S-076][S-077]
+Tài liệu chính thức hiện hành của vLLM mô tả `/health`, `/v1/models` và `/metrics` tương thích Prometheus. [S-093] Tài liệu tương thích của Ollama nêu hỗ trợ thống kê mức sử dụng trong stream đối với các phản hồi OpenAI-compatible phù hợp; số liệu gốc cụ thể và cách ánh xạ vào Dify vẫn cần kiểm chứng trong môi trường chạy. [S-091] Application Logs và tracing của Dify được mô tả tại Chương 09; phải xác minh trường nào thực sự đến từng exporter trước khi cam kết khả năng tương quan. [S-073][S-075][S-076][S-077]
 
 ## Kiến trúc/luồng dữ liệu
 
@@ -316,6 +317,16 @@ Trước khi mở Dify UI, tạo provider record:
 7. So Dify usage/error với provider dashboard/request ID.
 8. Chạy data-leak/redaction test trước Security/Privacy sign-off.
 9. Canary app/node explicit-pin; chỉ đổi default sau impact review.
+
+Provider được nêu đích danh trong brief có delta onboarding riêng; không thay tên model/endpoint trong một checklist generic rồi coi là tương đương:
+
+| Provider path | Input phải khóa ngoài Dify | Delta credential/protocol cần xác minh ở installed plugin | Negative test bắt buộc |
+|---|---|---|---|
+| Anthropic direct | Claude organization/workspace, exact model ID, API region/data policy, rate/spend tier | Official API dùng `POST /v1/messages`, bắt buộc API version header và một trong API key hoặc short-lived bearer token; installed Dify plugin có thể chỉ expose một tập credential, nên capture schema trước khi chọn auth pattern [S-124] | Missing/wrong `anthropic-version`, revoked/expired credential, model unavailable, rate/spend limit, streaming/tool schema mismatch |
+| Azure OpenAI | Tenant/subscription/resource, resource endpoint, **deployment name** ánh xạ model, stable API version và region | Official service hỗ trợ `api-key` hoặc Microsoft Entra bearer token; Dify plugin schema phải chứng minh phương thức thực tế, token refresh và endpoint composition, không giả định generic OpenAI key/base URL là đủ [S-125] | Sai resource/deployment/API version, `401` key, `403` RBAC, expired bearer token, region/deployment quota và streaming proxy |
+| Amazon Bedrock | AWS account/region, model ID hoặc ARN/inference profile, model-access status, IAM role và network path | Bedrock runtime dùng IAM-signed API/SDK path; quyền tối thiểu phải bao phủ action thực dùng như `bedrock:InvokeModel` và streaming tương ứng. Capture installed plugin credential/assume-role fields; không lưu static AWS key nếu workload identity được hỗ trợ [S-126] | Deny model/region, missing invoke/stream permission, expired session, unavailable model/profile, throttle/quota, model-specific payload và guardrail rejection |
+
+Ba dòng trên là **delta contract**, không phải bằng chứng plugin version đang cài hỗ trợ mọi auth/capability current của provider. Evidence onboarding phải đính kèm screenshot/export schema đã redacted, plugin version/hash, provider request ID hoặc cloud audit ID và exact effective model/deployment/profile.
 
 ### 3. Managed hoặc self-hosted OpenAI-compatible endpoint (`RUNTIME-PENDING`)
 
@@ -519,6 +530,7 @@ Khoanh vùng theo thứ tự: Dify selection/config → plugin/plugin daemon →
 
 - [x] Core baseline Dify `1.15.0` và docs commit đã pin.
 - [x] External native, compatible gateway, vLLM và Ollama pattern được tách.
+- [x] Anthropic direct, Azure OpenAI và Amazon Bedrock có delta onboarding/auth/protocol riêng.
 - [x] Credential, network/TLS/proxy và plugin-runtime boundary được ghi rõ.
 - [x] Streaming/tool/structured/embedding/rerank có capability contract.
 - [x] Credential LB, endpoint replica LB và cross-model fallback được phân biệt.
@@ -546,6 +558,7 @@ Khoanh vùng theo thứ tự: Dify selection/config → plugin/plugin daemon →
 
 - Dify core pin `1.15.0`, nhưng provider plugins và serving products release độc lập. [S-087]–[S-094] là official snapshot/current docs theo ngày, không phải entitlement/capability đóng băng cùng core.
 - Generic plugin schema/README snapshot có thể mới hơn plugin được cài trong một Dify `1.15.0` workspace; phải ghi installed plugin version và kiểm tra UI/runtime.
+- Anthropic, Azure OpenAI và Bedrock provider APIs evolve độc lập; current official API docs chỉ định delta cần test, không chứng minh installed Dify plugin hỗ trợ mọi credential/API surface.
 - Source core xác nhận dispatch qua plugin daemon nhưng không chứng minh actual proxy/source IP/CA behavior của deployment.
 - “OpenAI-compatible” là tập endpoint/field được implement, không phải chứng nhận tương thích toàn bộ API hoặc chất lượng tương đương.
 - vLLM/Ollama capability phụ thuộc serving/model/version/config; không áp current docs cho version cũ mà không test.
@@ -577,3 +590,6 @@ Khoanh vùng theo thứ tự: Dify selection/config → plugin/plugin daemon →
 - [S-092] [Ollama FAQ: network exposure, reverse proxy and pull proxy](https://docs.ollama.com/faq).
 - [S-093] [vLLM OpenAI-compatible server and serving endpoints](https://docs.vllm.ai/en/stable/serving/openai_compatible_server/).
 - [S-094] [vLLM tool-calling behavior](https://docs.vllm.ai/en/stable/features/tool_calling/).
+- [S-124] [Claude API Overview](https://platform.claude.com/docs/en/api/overview) — direct endpoint, authentication/version headers, Messages API và rate/spend context; truy cập `2026-07-20`.
+- [S-125] [Azure OpenAI REST API Reference](https://learn.microsoft.com/en-us/azure/foundry/openai/reference) — endpoint/deployment, API version, API-key và Entra auth; truy cập `2026-07-20`.
+- [S-126] [Amazon Bedrock InvokeModel API](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_InvokeModel.html) — model/profile identifier, IAM action, streaming/error surface; truy cập `2026-07-20`.

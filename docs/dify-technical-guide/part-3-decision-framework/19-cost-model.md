@@ -2,7 +2,8 @@
 
 > **Version áp dụng:** Dify Community `1.15.0 @ 3aa26fb…`; Enterprise/Cloud theo public snapshot ngày `2026-07-16`  
 > **Ngày kiểm chứng:** `2026-07-16`  
-> **Trạng thái xác minh:** `Official-source verified` + `Design reviewed`; giá, khối lượng và effort thực tế đều `TBD-by-owner`  
+> **Trạng thái xác minh:** `Official-source verified` + `Design reviewed` qua cross-review nội bộ; specialist review còn chờ, giá, khối lượng và effort thực tế đều `TBD-by-owner`
+>
 > **Reviewer:** Product, FinOps, AI Platform, Platform/SRE, Security và Procurement review pending
 
 ## Mục tiêu
@@ -42,6 +43,8 @@ Default Compose `1.15.0` gồm nhiều service và stateful dependency, không p
 ### Ranh giới quyết định phải khóa
 
 Mỗi workbook/model instance phải ghi:
+
+Các ô owner-bound bên dưới là trường input/output của deployment template, không phải nội dung tác giả còn viết dở. Owner phải nằm trong cùng hàng hoặc owner map của section; trường chỉ được coi là resolved khi có value/range hoặc explicit `N/A` kèm evidence trước recommendation hay deployment sign-off.
 
 | Input | Nội dung cần khóa | Giá trị hiện tại |
 |---|---|---|
@@ -266,7 +269,7 @@ Giá trị nào chưa có evidence giữ `TBD-by-owner` và thực hiện scenar
 
 ## Kiến trúc/luồng dữ liệu
 
-### D19 — Evidence-to-unit-economics pipeline
+### D18 — Evidence-to-unit-economics pipeline
 
 ```mermaid
 flowchart LR
@@ -475,6 +478,8 @@ Nếu GPU đã mua, không coi marginal electricity là toàn bộ cost. Ghi acq
 | Low/base/high range | `TBD-by-owner` | `TBD-by-owner` | `TBD-by-owner` |
 | Break-even valid? | `TBD-by-owner` | `TBD-by-owner` | `TBD-by-owner` |
 
+FinOps sở hữu phép tính và reconciliation; Product/AI/SRE/Security sở hữu quality, SLO và policy input tương ứng; decision owner phê duyệt recommendation. Owner mapping chi tiết của input nằm trong ba bảng scenario phía trên.
+
 ### 7. Reconciliation và cadence
 
 1. Forecast trước POC/pilot bằng range.
@@ -599,6 +604,8 @@ Model/provider credential vừa là secret vừa là spending authority. [S-065]
 - [x] Không có default price hoặc precision giả.
 
 ### Input/evidence gate
+
+Các gate input và calculation dưới đây áp dụng khi dùng template cho một deployment/cost decision cụ thể; chúng không chặn trạng thái `Review-ready` của core cost model.
 
 - [ ] Product khóa task, success contract, volume/peak/growth và quality/SLO.
 - [ ] Finance khóa horizon, currency/FX, tax, loaded rate và amortization policy.

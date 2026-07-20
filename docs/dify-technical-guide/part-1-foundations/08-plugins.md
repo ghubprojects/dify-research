@@ -13,6 +13,7 @@ Sau chương này, người đọc phải:
 - Hiểu plugin là extension boundary tách khỏi Dify API process.
 - Phân biệt Model, Tool, Agent Strategy, Extension, Datasource và Trigger plugin.
 - Biết Marketplace, GitHub và local upload là các nguồn cài đặt cần governance khác nhau.
+- Có thể dựng, debug và đóng gói một thin-slice Tool plugin bằng scaffold chính thức mà không đưa secret vào source/package.
 - Nhận diện `plugin_daemon`, plugin database và plugin storage trong topology/backup plan.
 - Không nhầm manifest permission hoặc daemon process boundary với bằng chứng isolation hoàn chỉnh.
 
@@ -112,10 +113,30 @@ Sơ đồ chỉ vẽ local runtime đang khớp image baseline. Debug/serverless
 
 Docs workspace xác nhận ba nguồn Marketplace/GitHub/local cùng permission/update behavior; Enterprise có thêm khả năng hạn chế source. [S-016]
 
+### Thin-slice tự viết Tool plugin (`RUNTIME-PENDING`)
+
+Walkthrough chính thức hiện hành yêu cầu plugin scaffolding tool và Python `3.12`, sau đó dùng `dify plugin init`, chọn template **Tool**, khai báo permission, viết provider/tool schema cùng implementation, remote-debug và đóng gói `.difypkg`. [S-123] Vì nguồn này mới hơn docs snapshot `1.15.0`, phải pin version/hash của plugin CLI, SDK và daemon dùng trong lab; không mặc định current template tương thích baseline.
+
+Một thin slice nội bộ nên chỉ gọi một endpoint read-only giả lập và đi theo contract tối thiểu:
+
+1. khởi tạo project bằng CLI đã pin; lưu CLI/SDK version, generated tree và lockfile;
+2. đặt identity/permission nhỏ nhất trong manifest; không xin Apps, storage, endpoint hay network capability nếu fixture không dùng;
+3. định nghĩa provider YAML và credential bằng `secret-input`; không hard-code token trong YAML, Python, `.env.example` hoặc test fixture;
+4. định nghĩa một tool YAML với input/output schema hẹp, `required`, giới hạn độ dài và `llm_description` không mở quyền ngoài ý muốn;
+5. implement provider credential validation và tool call với timeout hữu hạn, allowlisted HTTPS host, typed error và output đã normalize; không trả raw response chứa secret/header;
+6. chạy unit/contract test cho valid input, missing/oversized input, bad credential, timeout, malformed response và downstream `5xx`;
+7. remote-debug chỉ trong workspace lab với debug key ngắn hạn; kiểm tra log/redaction rồi revoke key;
+8. chạy `dify plugin package <project>`; lưu `.difypkg`, checksum, source commit, dependency lock, scan/SBOM và approval record;
+9. local-upload vào workspace test, invoke từ Workflow/Agent read-only, restart daemon, rollback/uninstall và xác nhận plugin DB/storage nhất quán;
+10. chỉ promote package đã ký/duyệt qua artifact pipeline; không rebuild thủ công ở production.
+
+Evidence tối thiểu gồm generated manifest/schema, source commit, dependency lock, unit/negative-test log, package checksum, scan result, install/invoke run ID, daemon log đã redacted và rollback result. Walkthrough này chứng minh đường phát triển cơ bản, không chứng minh malicious-plugin isolation hoặc multi-replica safety.
+
 ### Smoke test tối thiểu
 
 - Daemon health và API↔daemon connectivity.
 - Install, enable, invoke, disable, uninstall/reinstall.
+- Thin-slice custom Tool plugin: scaffold, unit/negative test, remote debug, package/checksum, local upload và rollback.
 - Credential đúng/sai/hết hạn và rotation.
 - Provider/tool success, timeout, rate limit và malformed response.
 - Restart daemon nhưng giữ plugin DB/storage.
@@ -162,6 +183,7 @@ Docs workspace xác nhận ba nguồn Marketplace/GitHub/local cùng permission/
 - [x] Baseline daemon/image/storage/database được khóa.
 - [x] Model-provider critical path được ghi nhận.
 - [x] Marketplace/GitHub/local source governance được phân biệt.
+- [x] Thin-slice tự viết Tool plugin có scaffold-to-package contract và evidence requirement.
 - [ ] Chốt approved-source/update policy.
 - [ ] Chạy install/invoke/restart/restore lab.
 - [ ] Kiểm tra port `5003` và egress restrictions.
@@ -177,6 +199,7 @@ Docs workspace xác nhận ba nguồn Marketplace/GitHub/local cùng permission/
 - Chưa đủ evidence để khẳng định OS-level isolation, tenant isolation hoặc safe multi-replica behavior.
 - Enterprise source restrictions/production-ready daemon capability phải xác minh bằng artifact/entitlement tương ứng.
 - Plugin behavior và publisher package có thể drift độc lập với source tree Dify.
+- [S-123] là current plugin walkthrough sau snapshot baseline; pin CLI/SDK/daemon và chạy compatibility test trước khi dùng generated package với Dify `1.15.0`.
 
 ## Nguồn tham khảo
 
@@ -189,3 +212,4 @@ Docs workspace xác nhận ba nguồn Marketplace/GitHub/local cùng permission/
 - [S-032] Plugin Daemon README `0.6.3`.
 - [S-033] Plugin Daemon commit `54432d8…`.
 - [S-038] Plugin model implementation tại Dify `1.15.0`.
+- [S-123] [Dify Tool Plugin Walkthrough](https://docs.dify.ai/en/develop-plugin/dev-guides-and-walkthroughs/tool-plugin) — scaffold, schema, implementation, debug và package flow; truy cập `2026-07-20`.

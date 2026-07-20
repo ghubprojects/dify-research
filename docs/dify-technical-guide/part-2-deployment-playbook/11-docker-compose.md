@@ -77,7 +77,7 @@ Với giá trị mặc định, Compose bật PostgreSQL, Weaviate và service W
 | Edge | `nginx` | Publish HTTP/HTTPS ở host port `80/443` mặc định. |
 | One-shot | `init_permissions` | Chỉnh owner cho app storage rồi thoát; `Exited (0)` là kết quả mong đợi. |
 
-Sáu core service, sáu dependency và một one-shot task trên là danh sách chính thức của default deployment. `api`, `worker` và `worker_beat` dùng chung image `langgenius/dify-api:1.15.0` nhưng khởi động bằng `MODE` khác nhau. [S-005][S-007][S-013]
+Sáu core service, năm dependency, một edge service và một tác vụ chạy một lần trên là danh sách chính thức của default deployment. `api`, `worker` và `worker_beat` dùng chung image `langgenius/dify-api:1.15.0` nhưng khởi động bằng `MODE` khác nhau. [S-005][S-007][S-013]
 
 ### Migration khi container API khởi động
 
@@ -131,7 +131,8 @@ flowchart LR
         API --> Redis
         API --> Vector
         API --> AppStorage
-        API --> Plugin
+        API -->|"invoke plugin / model"| Plugin
+        Plugin -->|"DIFY_INNER_API_URL + inner key"| API
         API --> Sandbox
 
         Worker --> DB
@@ -149,11 +150,28 @@ flowchart LR
     Plugin -->|"outbound subject to policy"| External
 ```
 
-Sơ đồ thể hiện topology logic của default Compose, không khẳng định mọi outbound request đều bị ép qua `ssrf_proxy`. Nginx route chính thức chuyển `/`, `/explore` sang web; API/file/MCP/trigger path sang API; `/socket.io` sang `api_websocket`; `/e/` sang plugin daemon. [S-005][S-010]
+Sơ đồ thể hiện topology logic của default Compose, không khẳng định mọi outbound request đều bị ép qua `ssrf_proxy`. Hai cạnh API ↔ plugin daemon là hai kết nối khác nhau: API/worker gọi daemon để thực thi capability, còn daemon gọi lại Dify inner API qua `DIFY_INNER_API_URL` với inner key. Firewall/NetworkPolicy phải cho phép đúng cả hai chiều nội bộ và vẫn không public inner API. Nginx route chính thức chuyển `/`, `/explore` sang web; API/file/MCP/trigger path sang API; `/socket.io` sang `api_websocket`; `/e/` sang plugin daemon. [S-005][S-006][S-010]
 
 State mặc định nằm ở các bind mount dưới `docker/volumes/`, đáng chú ý gồm PostgreSQL, Redis, Weaviate, app storage, sandbox dependency/config và plugin storage. Backup chỉ main database là chưa đủ để khôi phục toàn bộ chức năng.
 
 ## Hướng dẫn hoặc ví dụ triển khai
+
+### 0. Deployment intake
+
+Trước khi chạy preflight, người triển khai phải chốt các đầu vào dưới đây với owner tương ứng. Đây là intake gate cho môi trường đích, không phải bộ giá trị mặc định của Dify.
+
+| Nhóm đầu vào | Câu hỏi phải trả lời | Owner tối thiểu | Evidence trước khi start shared lab/production-like |
+|---|---|---|---|
+| Scope và hiện trạng | Clean install, shared lab hay upgrade; host có dữ liệu/state cần bảo toàn không; target là Linux, macOS hay Windows/WSL 2? | Service owner + Platform | Environment/change record và inventory hiện trạng |
+| Host và capacity | CPU, RAM, disk/IO, filesystem, quyền Docker và headroom tăng trưởng là bao nhiêu; port `80`, `443`, `5003` có sẵn hay cần remap? | Platform | Host inventory, capacity check và port mapping đã review |
+| Edge và network | Domain, DNS, TLS, reverse proxy, registry access, proxy/firewall và outbound allowlist nào được phê duyệt? | Network + Security | Route/certificate record và network approval |
+| Data và dependency | Data classification/retention là gì; dùng default PostgreSQL/Weaviate/local storage hay external backend; profile nào phải bật? | Data owner + Platform + Security | Data decision và backend/profile inventory |
+| Secret và quyền truy cập | Secret manager/CSPRNG nào được duyệt; ai sở hữu các cặp secret; operator có quyền cần thiết nhưng không lộ value qua Git/log không? | Security + Platform | Secret resource/version ID và access approval đã redacted |
+| Functional smoke | Model credential sandbox, corpus không nhạy cảm, plugin test và side-effect block nào được phép dùng? | Application/AI + Security | Test fixture ID, credential alias và approval |
+| Release và evidence | Image digest/registry/scanner nào dùng; log, run ID, screenshot và output redacted được lưu ở đâu? | Platform + Security | Release record và evidence location |
+| Upgrade/rollback nếu áp dụng | Source/target version, maintenance window, recovery point, rollback authority và acceptable data loss đã được chốt chưa? | Service owner + DBA + Platform | Change approval, restore-tested recovery point và rollback decision |
+
+Nếu một đầu vào bắt buộc chưa có owner/evidence, có thể tiếp tục đọc hoặc phân tích cấu hình tĩnh nhưng không start môi trường chia sẻ, promote hay gắn `RUNTIME-VALIDATED`. Không điền secret thật vào bảng intake hoặc ticket.
 
 ### 1. Preflight
 
@@ -235,7 +253,7 @@ docker compose config --images
 Kỳ vọng từ config mặc định:
 
 - profile có `postgresql`, `weaviate`, `collaboration`;
-- service list hiệu lực gồm 6 core service, 6 dependency và `init_permissions`;
+- service list hiệu lực gồm 6 core service, 5 dependency, 1 edge service và `init_permissions`;
 - core image là `langgenius/dify-api:1.15.0`, `langgenius/dify-web:1.15.0`, `langgenius/dify-plugin-daemon:0.6.3-local` và `langgenius/dify-sandbox:0.2.15`;
 - PostgreSQL, Redis và Weaviate đúng version đã liệt kê ở inventory.
 
@@ -304,7 +322,7 @@ Mở `http://localhost/install`, tạo admin đầu tiên và sau đó đăng nh
 2. Tạo workflow tối thiểu `User Input -> LLM -> Output`, chạy một blocking request và lưu run ID.
 3. Tạo knowledge base nhỏ, ingest một tài liệu không nhạy cảm và xác nhận worker xử lý xong.
 4. Chạy retrieval/query có câu trả lời dự kiến; lưu latency và trace/log liên quan.
-5. Cài một plugin test được phê duyệt, gọi một action tối thiểu rồi gỡ nếu không cần giữ.
+5. Cài một plugin test được phê duyệt và gọi một action tối thiểu; lưu evidence cho cả API/worker → daemon invocation lẫn daemon → Dify inner API callback/auth, rồi gỡ plugin nếu không cần giữ.
 6. Chạy `docker compose restart`, lặp lại login, workflow và retrieval để xác minh persistence.
 7. Kiểm tra không có secret/token trong log đã thu thập.
 
@@ -334,25 +352,19 @@ Các caveat bắt buộc:
 
 Mỗi target version có release-specific procedure. Với `1.15.0`, release note chính thức yêu cầu backup config/data, review thay đổi env/Compose, chạy migration và chạy plugin auto-upgrade backfill. [S-001]
 
-Trước upgrade:
+Không dùng một lệnh `docker compose up -d` trần làm procedure upgrade. `.env.example` bật `MIGRATION_ENABLED=true`, trong khi `api`, `api_websocket`, `worker` và `worker_beat` cùng dùng entrypoint có thể gọi `flask upgrade-db`; start toàn stack trước gate có thể tạo nhiều migration invocation cạnh tranh. Canonical procedure duy nhất nằm tại [Chương 15 — Runbook 4: Upgrade Dify và database migration](15-operations-backup-upgrade-dr.md#runbook-4--upgrade-dify-và-database-migration).
 
-- ghi lại source tag/commit và image digest hiện tại;
-- backup `.env`, các file `envs/**/*.env`, overlay, certificate và Compose customization ở nơi mã hóa;
-- dừng service trước khi snapshot bind-mounted `volumes/` theo procedure chính thức;
-- có thêm logical backup cho database và backup object/external storage nếu đã rời default local storage;
-- thử restore trên môi trường tách biệt trước maintenance window;
-- so sánh `.env.example`, các template `envs/**/*.env.example` và `docker-compose.yaml` giữa hai tag.
+Gate tối thiểu trước khi chạy procedure đó:
 
-Sau khi checkout đúng `1.15.0` và hợp nhất cấu hình:
+1. lấy environment-exclusive lock và đặt edge vào maintenance;
+2. có recovery point nhất quán đã restore-test, source/image digest và rollback authority;
+3. review diff `.env.example`, `envs/**/*.env.example`, Compose/overlay và dependency giữa source/target tag;
+4. dùng cùng một immutable overlay đặt `MIGRATION_ENABLED=false` trên **mọi** long-lived service dùng Dify API image, gồm API, WebSocket, worker, beat và worker bổ sung;
+5. chỉ một one-shot container target image được override `MODE=migration` và `MIGRATION_ENABLED=true` trong lúc lock còn hợp lệ;
+6. xác minh exit code/schema head rồi chạy backfill release-specific theo đúng thứ tự của Chương 15 trước khi mở traffic/side effect;
+7. rollout bằng chính overlay đã kiểm tra, chạy smoke Tầng A–C và giữ observation/rollback window.
 
-```bash
-cd docker
-docker compose up -d
-docker compose exec api flask backfill-plugin-auto-upgrade
-docker compose ps -a
-```
-
-Release `1.15.0` thêm 19 biến, bỏ 2 biến, đổi 1 biến và sửa Compose files; không tái sử dụng `.env` cũ mà không review. `dify-env-sync.sh` có thể hỗ trợ đồng bộ một chiều từ `.env.example` sang `.env` và giữ giá trị hiện có, nhưng diff vẫn phải được con người review. [S-001][S-021]
+Release `1.15.0` thêm 19 biến, bỏ 2 biến, đổi 1 biến và sửa Compose files; không tái sử dụng `.env` cũ mà không review. `dify-env-sync.sh` có thể hỗ trợ đồng bộ một chiều từ `.env.example` sang `.env` và giữ giá trị hiện có, nhưng diff vẫn phải được con người review. [S-001][S-013][S-021]
 
 ### 10. Rollback
 

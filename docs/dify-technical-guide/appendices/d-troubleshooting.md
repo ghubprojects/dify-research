@@ -2,7 +2,8 @@
 
 > **Version áp dụng:** Dify Community `1.15.0 @ 3aa26fb…`; docs snapshot `release/1.15.0 @ 57a492d…`  
 > **Ngày kiểm chứng:** `2026-07-16`  
-> **Trạng thái xác minh:** `Official-source verified` + `Config validated` + `Design reviewed`; mọi lệnh, output và recovery action tại môi trường thật là `RUNTIME-PENDING`  
+> **Trạng thái xác minh:** `Official-source verified` + `Config validated` + `Design reviewed` qua cross-review nội bộ; specialist review và mọi lệnh, output, recovery action tại môi trường thật vẫn `RUNTIME-PENDING`
+>
 > **Reviewer:** Platform/SRE, Database, Security, AI Platform, Integration và Application Owner review pending
 
 ## Cách sử dụng

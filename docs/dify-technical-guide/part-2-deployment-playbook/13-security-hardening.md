@@ -2,7 +2,8 @@
 
 > **Version áp dụng:** Dify Community `1.15.0 @ 3aa26fb…`; Enterprise controls theo source snapshot được ghi riêng  
 > **Ngày kiểm chứng:** `2026-07-16`  
-> **Trạng thái xác minh:** `Official-source verified` + `Config validated` + `Design reviewed`; penetration và runtime test đều `RUNTIME-PENDING`  
+> **Trạng thái xác minh:** `Official-source verified` + `Config validated` + `Design reviewed` qua cross-review nội bộ; specialist review, penetration test và runtime test đều `RUNTIME-PENDING`
+>
 > **Reviewer:** Security/Platform/Privacy/Legal review required
 
 ## Mục tiêu
@@ -132,15 +133,22 @@ flowchart LR
     Admin -->|"restricted admin access"| WAF
     WAF --> Web
     WAF --> API
-    API --> Worker
-    API --> Plugin
+    API <--> Redis
+    Worker <--> Redis
+    API -->|"invoke plugin / model"| Plugin
+    Plugin -->|"DIFY_INNER_API_URL + inner key"| API
     Worker --> Plugin
     API --> Sandbox
     Worker --> Sandbox
     Sandbox --> Proxy
-    API --> Data
-    Worker --> Data
-    Plugin --> Data
+    API --> DB
+    API --> Vector
+    API --> Storage
+    Worker --> DB
+    Worker --> Vector
+    Worker --> Storage
+    Plugin --> DB
+    Plugin --> Storage
     Plugin --> External
     Proxy --> External
     API -.->|"selected controlled egress"| Proxy
@@ -150,7 +158,7 @@ flowchart LR
     Secrets --> Plugin
 ```
 
-Mỗi mũi tên là một policy point: identity, credential, protocol, allowlist, encryption, timeout, telemetry và failure behavior phải được ghi rõ.
+Mỗi mũi tên là một policy point: identity, credential, protocol, allowlist, encryption, timeout, telemetry và failure behavior phải được ghi rõ. Không có kết nối API → worker trực tiếp trong queued path: API enqueue/subscribe qua Redis, worker consume/publish qua Redis. Plugin boundary cần hai rule hẹp khác nhau cho API/worker → daemon invocation và daemon → Dify inner API callback; inner API không được public.
 
 ## Hướng dẫn hoặc ví dụ triển khai
 
@@ -177,23 +185,23 @@ Mỗi mũi tên là một policy point: identity, credential, protocol, allowlis
 
 ### Security test matrix tối thiểu
 
-| ID | Test | Kết quả mong đợi |
-|---|---|---|
-| SEC-01 | Bootstrap/default secret scan | Không còn secret mẫu hoặc secret commit/log |
-| SEC-02 | External port scan | Chỉ port/route đã phê duyệt reachable; `5003` bị chặn |
-| SEC-03 | TLS/hostname/certificate | TLS policy đạt; certificate/renewal alert hoạt động |
-| SEC-04 | CORS/origin negative test | Origin ngoài allowlist bị chặn |
-| SEC-05 | SSRF tới loopback/private/metadata | Bị chặn; exception được log/owner hóa |
-| SEC-06 | Sandbox/code egress | Chỉ endpoint cho phép; timeout/resource limit hữu hạn |
-| SEC-07 | Malicious/untrusted plugin fixture | Install/invoke bị policy chặn hoặc cô lập; evidence đủ điều tra |
-| SEC-08 | Tool prompt injection và parameter abuse | Không vượt allowlist/schema/authorization |
-| SEC-09 | Cross-user/workspace access | Không đọc/sửa resource ngoài quyền |
-| SEC-10 | MCP URL/credential revoke | URL cũ/credential cũ hết hiệu lực; log không lộ secret |
-| SEC-11 | PII/secret canary qua log/trace | Destination bị cấm không nhận raw canary |
-| SEC-12 | Backup access/restore | Backup encrypted/least privilege và restore dùng đúng secret set |
-| SEC-13 | Rate/size/concurrency abuse | Request bị giới hạn có kiểm soát, service không sập lan truyền |
-| SEC-14 | Dependency/provider outage | Fail closed/degraded theo design; không bypass policy |
-| SEC-15 | Vulnerability-report drill | Triage/contain/report dùng private channel và owner đúng |
+| ID | Test | Kết quả mong đợi | Accountable owner / control | Evidence bắt buộc |
+|---|---|---|---|---|
+| SEC-01 | Bootstrap/default secret scan | Không còn secret mẫu hoặc secret commit/log | Security · CFG-ENV-002/003 | Scan report, negative fixture và secret fingerprint/version đã redacted |
+| SEC-02 | External port scan | Chỉ port/route đã phê duyệt reachable; `5003` bị chặn | Network/Security · CFG-CMP-007, CFG-NET-001 | External scan, listener/firewall diff và denied-port result |
+| SEC-03 | TLS/hostname/certificate | TLS policy đạt; certificate/renewal alert hoạt động | Network/Security · CFG-URL-005 | TLS scan, certificate fingerprint/expiry và alert-fire/recovery result |
+| SEC-04 | CORS/origin negative test | Origin ngoài allowlist bị chặn | Security/App · CFG-URL-004 | Allowed/denied origin transcript và rendered non-secret config |
+| SEC-05 | SSRF tới loopback/private/metadata | Bị chặn; exception được log/owner hóa | Security · CFG-NET-003/004 | Request IDs, proxy/firewall deny log và approved exception ID nếu có |
+| SEC-06 | Sandbox/code egress | Chỉ endpoint cho phép; timeout/resource limit hữu hạn | Security/Platform · CFG-RUN-007, CFG-SEC-008 | Execution IDs, resource/timeout result và allowed/denied egress evidence |
+| SEC-07 | Malicious/untrusted plugin fixture | Install/invoke bị policy chặn hoặc cô lập; evidence đủ điều tra | Security/Integration · CFG-SEC-007/008 | Package hash/provenance, install/invoke result, deny/isolation logs |
+| SEC-08 | Tool prompt injection và parameter abuse | Không vượt allowlist/schema/authorization | App/Security · CFG-SEC-006/007 | Run ID, schema/authorization assertions và downstream audit ID |
+| SEC-09 | Cross-user/workspace access | Không đọc/sửa resource ngoài quyền | App/Security · CFG-SEC-002 | Identity-resource-action matrix, positive/negative request IDs và audit result |
+| SEC-10 | MCP URL/credential revoke | URL cũ/credential cũ hết hiệu lực; log không lộ secret | Security/Integration · CFG-SEC-007, CFG-ENV-007 | Old/new credential test IDs, revoke audit và redaction scan |
+| SEC-11 | PII/secret canary qua log/trace | Destination bị cấm không nhận raw canary | Security/SRE · CFG-SEC-010 | Canary ID, destination query và redaction/export report |
+| SEC-12 | Backup access/restore | Backup encrypted/least privilege và restore dùng đúng secret set | Security/SRE · CFG-BKP-009–011 | Backup/key version IDs, access/decrypt audit và isolated restore result |
+| SEC-13 | Rate/size/concurrency abuse | Request bị giới hạn có kiểm soát, service không sập lan truyền | Security/SRE · CFG-URL-007, CFG-OBS-009 | Load profile, limit responses, saturation/recovery metrics và alert timeline |
+| SEC-14 | Dependency/provider outage | Fail closed/degraded theo design; không bypass policy | App/SRE/AI Platform · CFG-MDL-010, CFG-OBS-010 | Failure-injection timeline, run/task IDs, policy assertion và recovery result |
+| SEC-15 | Vulnerability-report drill | Triage/contain/report dùng private channel và owner đúng | Security · CFG-SEC-013 | Tabletop timeline, private-route verification và PIR actions có owner/deadline |
 
 ### Vulnerability handling
 
@@ -248,6 +256,7 @@ Runbook nội bộ phải thêm:
 - [ ] Chốt data classification, tenant/workspace model và edition controls.
 - [ ] Hoàn tất threat model cho từng app/use case.
 - [ ] Chạy SEC-01–SEC-15 và lưu evidence.
+- [ ] Xác minh hai chiều API/worker → plugin daemon và daemon → Dify inner API bằng positive/negative auth test; inner API không public.
 - [ ] Xác minh sandbox/plugin isolation bằng negative test.
 - [ ] Chạy secret rotation/revoke và backup/restore drill.
 - [ ] Chốt vulnerability/CVE/SBOM/image/plugin update process.

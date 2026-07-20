@@ -2,6 +2,8 @@
 
 > **Version áp dụng:** Dify Community `1.15.0`  
 > **Ngày kiểm chứng:** `2026-07-16`  
+> **Version-drift check:** `2026-07-20`; ghi nhận `1.16.0`, không đổi baseline
+>
 > **Trạng thái xác minh:** `Official-source verified — vòng 1`  
 > **Reviewer:** Chờ technical/editorial review
 
@@ -30,6 +32,9 @@
 - [S-014 — Dify as MCP client](https://github.com/langgenius/dify-docs/blob/57a492d8063d1583c582b4c0444fb838c6dd3027/en/self-host/use-dify/workspace/tools.mdx)
 - [S-119 — Dify MCP Tool Core Source](https://github.com/langgenius/dify/blob/1.15.0/api/core/tools/mcp_tool/tool.py)
 - [S-120 — Dify MCP Client Core Source](https://github.com/langgenius/dify/blob/1.15.0/api/core/mcp/mcp_client.py)
+- [S-121 — Dify 1.16.0 Release Note](https://github.com/langgenius/dify/releases/tag/1.16.0) — nguồn drift sau baseline; chưa dùng thay procedure `1.15.0`.
+- [S-122 — Dify 1.16.0 Version Bump Commit](https://github.com/langgenius/dify/commit/5c6372d2f76d240265b92fd27c16bc772ffcb107)
+- [S-123 — Dify Tool Plugin Walkthrough](https://docs.dify.ai/en/develop-plugin/dev-guides-and-walkthroughs/tool-plugin) — current docs; pin CLI/SDK trước khi áp dụng cho baseline.
 - [S-015 — Publish as MCP server](https://github.com/langgenius/dify-docs/blob/57a492d8063d1583c582b4c0444fb838c6dd3027/en/self-host/use-dify/publish/publish-mcp.mdx)
 - [S-016 — Integrations and plugins](https://github.com/langgenius/dify-docs/blob/57a492d8063d1583c582b4c0444fb838c6dd3027/en/self-host/use-dify/workspace/plugins.mdx)
 - [S-017 — Workspace roles](https://github.com/langgenius/dify-docs/blob/57a492d8063d1583c582b4c0444fb838c6dd3027/en/self-host/use-dify/workspace/team-members-management.mdx)
@@ -135,6 +140,13 @@
 - [S-092 — Ollama FAQ](https://docs.ollama.com/faq)
 - [S-093 — vLLM OpenAI-compatible Server](https://docs.vllm.ai/en/stable/serving/openai_compatible_server/)
 - [S-094 — vLLM Tool Calling](https://docs.vllm.ai/en/stable/features/tool_calling/)
+- [S-124 — Claude API Overview](https://platform.claude.com/docs/en/api/overview)
+- [S-125 — Azure OpenAI REST API Reference](https://learn.microsoft.com/en-us/azure/foundry/openai/reference)
+- [S-126 — Amazon Bedrock InvokeModel API](https://docs.aws.amazon.com/bedrock/latest/APIReference/API_runtime_InvokeModel.html)
+
+## LLMOps bổ sung
+
+- [S-127 — Arize Phoenix Overview](https://arize.com/docs/phoenix) — Phoenix nhận trace qua OTLP/OpenTelemetry; không phải bằng chứng có native Dify integration.
 
 ## Operations, backup và DR
 
@@ -168,4 +180,4 @@ Chưa có nguồn thứ cấp nào được chấp nhận làm evidence cho clai
 
 - Baseline product: `1.15.0 @ 3aa26fb6374bbd47e5469f7d7cc25f3e0075a60c`.
 - Baseline docs: `release/1.15.0 @ 57a492d8063d1583c582b4c0444fb838c6dd3027`.
-- Trước final, kiểm tra lại latest stable/release notes và ghi delta; không tự động đổi baseline giữa vòng viết.
+- Drift check đã chạy ngày `2026-07-20` và phát hiện `1.16.0`; lặp lại tại `DOC-G5` nếu ngày phát hành final muộn hơn, ghi delta và không tự động đổi baseline giữa vòng viết.

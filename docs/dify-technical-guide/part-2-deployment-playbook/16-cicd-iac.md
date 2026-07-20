@@ -2,7 +2,8 @@
 
 > **Version áp dụng:** Dify Community Edition `1.15.0`, commit `3aa26fb6374bbd47e5469f7d7cc25f3e0075a60c`  
 > **Ngày kiểm chứng:** `2026-07-16`  
-> **Trạng thái xác minh:** `Official-source verified` + `Design reviewed`; pipeline và promotion rehearsal đang `RUNTIME-PENDING`  
+> **Trạng thái xác minh:** `Official-source verified` + `Design reviewed` qua cross-review nội bộ; specialist review, pipeline và promotion rehearsal vẫn `RUNTIME-PENDING`
+>
 > **Reviewer:** Platform/Security/Application owner review pending
 
 ## Mục tiêu
@@ -116,25 +117,31 @@ flowchart LR
     Bundle --> Meta
     Bundle --> Dev["Deploy dev"]
     Dev --> Contract["Static + contract tests"]
-    Contract --> Staging["Deploy staging"]
-    Staging --> Lock["Environment-exclusive migration lease"]
-    Lock --> Backup["Backup / restore point"]
-    Backup --> Smoke["Migration + smoke + failure checks"]
-    Smoke --> Tests
-    Smoke --> Gate{"Production approval?"}
+    Contract --> StageLock["Acquire staging-exclusive lease"]
+    StageLock --> StageBackup["Verify staging recovery point"]
+    StageBackup --> StageMigrate["One-shot migration + backfill"]
+    StageMigrate --> Staging["Roll out candidate digests to staging"]
+    Staging --> StageSmoke["Smoke + failure checks"]
+    StageSmoke --> Tests
+    StageSmoke --> Gate{"Production approval?"}
     Gate -->|"No"| Stop["Stop, preserve evidence"]
-    Gate -->|"Yes"| Prod["Deploy same digests to production"]
-    Approval --> Prod
+    Gate -->|"Yes"| ProdLock["Acquire production-exclusive lease"]
+    Approval --> ProdLock
+    ProdLock --> ProdBackup["Verify production recovery point"]
+    ProdBackup --> ProdMigrate["One-shot migration + backfill"]
+    ProdMigrate --> Prod["Roll out same digests to production"]
     Prod --> Post["Post-deploy verification"]
     Post --> Tests
     Post --> Observe["SLO, logs, traces và rollback watch"]
 
     Secrets["Environment secret manager"] -. "short-lived references" .-> Dev
+    Secrets -. "short-lived references" .-> StageMigrate
     Secrets -. "short-lived references" .-> Staging
+    Secrets -. "separate production identity" .-> ProdMigrate
     Secrets -. "separate production identity" .-> Prod
 ```
 
-Không có mũi tên build lại giữa staging và production. Nếu production resolve tag lần nữa, artifact thực tế có thể khác bản đã test dù tên tag giống nhau.
+Không có mũi tên build lại giữa staging và production. Nếu production resolve tag lần nữa, artifact thực tế có thể khác bản đã test dù tên tag giống nhau. Staging và production có lease, recovery-point ID, migration/backfill execution và evidence riêng; không dùng backup hoặc lock của staging làm gate dữ liệu cho production. Long-lived service chỉ rollout sau one-shot thành công và phải giữ `MIGRATION_ENABLED=false` trong rendered config.
 
 ## Hướng dẫn hoặc ví dụ triển khai
 
@@ -231,15 +238,17 @@ Release `1.15.0` thêm/bỏ/đổi biến và Compose configuration; upgrade gat
 
 Staging phải dùng cùng digest và deployment model với production candidate:
 
-1. tạo hoặc xác minh restore point trước migration;
-2. deploy dependency/config change theo runbook;
-3. chạy database migration đúng một owner đã xác định;
-4. với upgrade `1.15.0`, chạy plugin auto-upgrade backfill theo release note;
-5. chạy health/readiness và synthetic queued job;
-6. chạy workflow blocking/streaming, knowledge ingest/retrieval, model, plugin và auth smoke;
-7. inject ít nhất timeout provider, worker interruption và dependency reconnect;
-8. export DSL từ staging nếu workflow có transform và so hash/semantic diff;
-9. lưu run ID, timestamps, digest, schema version và kết quả đã redacted.
+1. lấy staging-exclusive lock trước khi chạm state hoặc tạo migration invocation;
+2. tạo/xác minh staging recovery point và restore-test freshness trước migration;
+3. apply dependency/config prerequisite nếu cần nhưng chưa rollout long-lived Dify service mới;
+4. chạy đúng một migration invocation bằng target image trong lock;
+5. nếu upgrade target `1.15.0`, chạy plugin auto-upgrade backfill như one-shot release command; release khác chỉ chạy one-shot được release note yêu cầu;
+6. chỉ sau đó rollout long-lived candidate với `MIGRATION_ENABLED=false` trên mọi service dùng API image;
+7. chạy health/readiness và synthetic queued job;
+8. chạy workflow blocking/streaming, knowledge ingest/retrieval, model, plugin và auth smoke;
+9. inject ít nhất timeout provider, worker interruption và dependency reconnect;
+10. export DSL từ staging nếu workflow có transform và so hash/semantic diff;
+11. lưu lock/recovery ID, run ID, timestamps, digest, schema version và kết quả đã redacted.
 
 “Một owner” phải được cưỡng chế bằng **environment-scoped atomic lock**, không chỉ bằng `parallelism: 1`, `completions: 1` hoặc một lệnh `docker compose run`: hai pipeline độc lập vẫn có thể tạo hai invocation. Lock backend do tổ chức chọn nhưng phải có environment ID, owner/run ID, TTL/heartbeat, fencing token, audit, stale-lock recovery và quyền chỉ cho deploy identity. Pipeline giữ lock xuyên suốt preflight → backup gate → migration/backfill → rollout hoặc rollback handoff; nếu không lấy được lock thì fail-safe trước khi chạm database. Preflight còn phải xác nhận không có migration Job/container khác đang active. CI-10 phải khởi động hai promotion cạnh tranh và chứng minh chỉ một owner tiến vào critical section.
 
@@ -257,7 +266,7 @@ Approval record tối thiểu:
 | Application quality | App owner | DSL hash, contract/smoke result, known limitations |
 | Operations | SRE/Operations | capacity, alerts, on-call, rollback watch window |
 
-Production deploy chỉ lấy bundle đã duyệt, kiểm tra digest/signature trước apply, lấy environment-exclusive lock, chặn concurrent deployment và mở traffic sau post-deploy smoke. Job singleton chỉ hợp lệ bên trong lock này. Mọi manual intervention phải được ghi vào release record; nếu manifest live khác bundle, tuyên bố drift và dừng promotion tiếp theo.
+Production deploy chỉ lấy bundle đã duyệt và dùng một critical section **riêng cho production**: verify digest/signature → lấy production-exclusive lock → tạo/xác minh production recovery point → chạy one-shot migration/backfill → rollout long-lived service với migration disabled → post-deploy smoke/SLO watch → mở traffic/side effect. Không tái sử dụng staging lock hoặc staging backup ID làm production evidence. Job singleton chỉ hợp lệ bên trong lock này. Mọi manual intervention phải được ghi vào release record; nếu manifest live khác bundle, tuyên bố drift và dừng promotion tiếp theo.
 
 ### 8. Rollback và roll-forward
 
@@ -272,25 +281,25 @@ Không chạy `docker compose down --volumes` trong rollback. Hạ image không 
 
 ### 9. Test matrix CI/CD
 
-| ID | Tầng | Kịch bản | Điều kiện đạt | Trạng thái |
-|---|---|---|---|---|
-| CI-01 | Static | Full source/docs/plugin SHA | Không branch/mutable lookup | Design reviewed |
-| CI-02 | Static | Compose render | Syntax, service/profile/image list đúng | RUNTIME-PENDING |
-| CI-03 | Static | Kubernetes/Helm render | Schema/policy và deterministic diff đạt | RUNTIME-PENDING |
-| CI-04 | Supply chain | Resolve image digest per platform | Lock file chứa digest đã verify | RUNTIME-PENDING |
-| CI-05 | Supply chain | Scan + SBOM/provenance | Qua policy hoặc có exception hết hạn | RUNTIME-PENDING |
-| CI-06 | Supply chain | Verify attestation/signer | Identity và source workflow đúng policy | RUNTIME-PENDING |
-| CI-07 | Security | Secret scan và negative fixture | Fixture bị chặn; không có secret thật trong log/artifact | RUNTIME-PENDING |
-| CI-08 | Config | Missing/unknown env key | Candidate sai bị reject | RUNTIME-PENDING |
-| CI-09 | DSL | Syntax, hash và dependency manifest | Import staging và contract test đạt | RUNTIME-PENDING |
-| CI-10 | Migration | Concurrent deploy/migration | Chỉ một migration owner; deploy còn lại chờ/fail-safe | RUNTIME-PENDING |
-| CI-11 | Runtime | Blocking + streaming workflow | Output/event contract đạt | RUNTIME-PENDING |
-| CI-12 | Runtime | Queue/indexing/plugin smoke | Functional path đạt, không chỉ process health | RUNTIME-PENDING |
-| CI-13 | Failure | Provider timeout/worker interruption | Bounded failure/recovery, không duplicate side effect ngoài policy | RUNTIME-PENDING |
-| CI-14 | Promotion | Staging và production artifact equality | Digest + manifest hash giống nhau ngoài overlay được phép | RUNTIME-PENDING |
-| CI-15 | Drift | Manual live change | Detect, alert và mở reconciliation PR/incident | RUNTIME-PENDING |
-| CI-16 | Rollback | Config/image rollback | SLO và data check đạt | RUNTIME-PENDING |
-| CI-17 | Restore | Schema-changing rollback | Restore đồng bộ đạt RPO/RTO mục tiêu | RUNTIME-PENDING |
+| ID | Tầng | Kịch bản | Điều kiện đạt | Accountable owner / control | Evidence bắt buộc | Trạng thái |
+|---|---|---|---|---|---|---|
+| CI-01 | Static | Full source/docs/plugin SHA | Không branch/mutable lookup | Release · CFG-BASE-001–003 | Commit/tag verification log gắn release ID | Design reviewed |
+| CI-02 | Static | Compose render | Syntax, service/profile/image list đúng | Platform · CFG-CMP-004, CFG-REL-005 | Tool version, redacted service/profile/image output và rendered hash | CONFIG-PENDING |
+| CI-03 | Static | Kubernetes/Helm render | Schema/policy và deterministic diff đạt | Platform/Release · CFG-K8S-003, CFG-REL-005 | Tool version, lint/schema/policy log và rendered hash | CONFIG-PENDING |
+| CI-04 | Supply chain | Resolve image digest per platform | Lock file chứa digest đã verify | Release · CFG-IMG-001, CFG-REL-007 | Registry resolution record theo platform | RUNTIME-PENDING |
+| CI-05 | Supply chain | Scan + SBOM/provenance | Qua policy hoặc có exception hết hạn | Security/Release · CFG-IMG-004/005 | Scan, SBOM/provenance và exception IDs/expiry | RUNTIME-PENDING |
+| CI-06 | Supply chain | Verify attestation/signer | Identity và source workflow đúng policy | Security/Release · CFG-IMG-005, CFG-REL-007 | Verification log gồm digest, signer/issuer và workflow identity | RUNTIME-PENDING |
+| CI-07 | Security | Secret scan và negative fixture | Fixture bị chặn; không có secret thật trong log/artifact | Security/Release · CFG-ENV-003, CFG-REL-004 | Scanner log, fixture result và artifact/log redaction check | RUNTIME-PENDING |
+| CI-08 | Config | Missing/unknown env key | Candidate sai bị reject | Platform/Release · CFG-ENV-001 | Positive/negative schema test results | RUNTIME-PENDING |
+| CI-09 | DSL | Syntax, hash và dependency manifest | Import staging và contract test đạt | App owner/Release · CFG-BASE-009, CFG-REL-009 | DSL hash, dependency manifest, import/run IDs | RUNTIME-PENDING |
+| CI-10 | Migration | Concurrent deploy/migration | Chỉ một migration owner; deploy còn lại chờ/fail-safe | Release/DBA · CFG-K8S-005, CFG-REL-013 | Competing-run IDs, lock/fencing audit, Job/container log và DB revision | RUNTIME-PENDING |
+| CI-11 | Runtime | Blocking + streaming workflow | Output/event contract đạt | App/SRE · CFG-REL-011/015 | Workflow run IDs và ordered event/terminal transcript | RUNTIME-PENDING |
+| CI-12 | Runtime | Queue/indexing/plugin smoke | Functional path đạt, không chỉ process health | SRE/App · CFG-RUN-002/005, CFG-REL-015 | Task/document/plugin IDs, completion result và component logs | RUNTIME-PENDING |
+| CI-13 | Failure | Provider timeout/worker interruption | Bounded failure/recovery, không duplicate side effect ngoài policy | SRE/App · CFG-MDL-010, CFG-REL-011 | Injection timeline, task/request IDs và duplicate/recovery check | RUNTIME-PENDING |
+| CI-14 | Promotion | Staging và production artifact equality | Digest + manifest hash giống nhau ngoài overlay được phép | Release · CFG-IMG-007, CFG-REL-014 | Cross-environment digest/hash comparison | RUNTIME-PENDING |
+| CI-15 | Drift | Manual live change | Detect, alert và mở reconciliation PR/incident | Platform · CFG-REL-017 | Drift diff, alert timeline và reconciliation record | RUNTIME-PENDING |
+| CI-16 | Rollback | Config/image rollback | SLO và data check đạt | Release/SRE · CFG-REL-016 | Rollback timeline, artifact IDs, SLO và data canary result | RUNTIME-PENDING |
+| CI-17 | Restore | Schema-changing rollback | Restore đồng bộ đạt RPO/RTO mục tiêu | SRE/DBA/Data · CFG-BKP-011–013 | Recovery-point ID, restore logs, acceptance IDs và observed RPO/RTO | RUNTIME-PENDING |
 
 ## Quyết định và trade-off
 
@@ -357,6 +366,7 @@ Không chữa pipeline bằng cách tắt signature verification, bỏ scan/poli
 - [x] Release bundle schema, evidence và approval model đã được định nghĩa.
 - [x] Mutable image/action reference được xác định là release risk.
 - [x] Mermaid pipeline được nhúng trực tiếp trong Markdown.
+- [ ] CI-02/CI-03 Compose và Kubernetes render/schema/policy đạt `CONFIG-VALIDATED` bằng toolchain đã khóa.
 - [ ] Mermaid đã render trên renderer publish mục tiêu.
 
 ### Implementation/runtime gate (`RUNTIME-PENDING`)
@@ -366,7 +376,6 @@ Không chữa pipeline bằng cách tắt signature verification, bỏ scan/poli
 - [ ] Image digest cho mọi platform được resolve, mirror/scan và khóa.
 - [ ] SBOM/provenance/signature policy được tạo và verify trong deploy job.
 - [ ] Config schema reject missing/unknown key; secret không xuất hiện trong artifact/log.
-- [ ] Compose và Kubernetes render/policy checks đạt.
 - [ ] DSL dependency manifest, staging import và contract tests đạt.
 - [ ] Staging dùng đúng production-candidate digest.
 - [ ] Backup/restore point và migration singleton gate đạt.

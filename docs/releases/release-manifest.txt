@@ -1,0 +1,28 @@
+# Deterministic source order for the assembled Dify technical guide.
+# Paths are repository-relative. Keep chapters 00-19 before appendices A-F.
+docs/dify-technical-guide/00-scope-version-and-assumptions.md
+docs/dify-technical-guide/part-1-foundations/01-dify-overview.md
+docs/dify-technical-guide/part-1-foundations/02-system-architecture.md
+docs/dify-technical-guide/part-1-foundations/03-workflow.md
+docs/dify-technical-guide/part-1-foundations/04-rag.md
+docs/dify-technical-guide/part-1-foundations/05-agent.md
+docs/dify-technical-guide/part-1-foundations/06-model-management.md
+docs/dify-technical-guide/part-1-foundations/07-mcp.md
+docs/dify-technical-guide/part-1-foundations/08-plugins.md
+docs/dify-technical-guide/part-1-foundations/09-llmops-observability.md
+docs/dify-technical-guide/part-1-foundations/10-editions-license.md
+docs/dify-technical-guide/part-2-deployment-playbook/11-docker-compose.md
+docs/dify-technical-guide/part-2-deployment-playbook/12-kubernetes-ha.md
+docs/dify-technical-guide/part-2-deployment-playbook/13-security-hardening.md
+docs/dify-technical-guide/part-2-deployment-playbook/14-model-provider-integration.md
+docs/dify-technical-guide/part-2-deployment-playbook/15-operations-backup-upgrade-dr.md
+docs/dify-technical-guide/part-2-deployment-playbook/16-cicd-iac.md
+docs/dify-technical-guide/part-3-decision-framework/17-use-case-patterns.md
+docs/dify-technical-guide/part-3-decision-framework/18-poc-pilot-checklist.md
+docs/dify-technical-guide/part-3-decision-framework/19-cost-model.md
+docs/dify-technical-guide/appendices/a-quick-comparison.md
+docs/dify-technical-guide/appendices/b-glossary.md
+docs/dify-technical-guide/appendices/c-configuration-checklists.md
+docs/dify-technical-guide/appendices/d-troubleshooting.md
+docs/dify-technical-guide/appendices/e-references.md
+docs/dify-technical-guide/appendices/f-change-log.md

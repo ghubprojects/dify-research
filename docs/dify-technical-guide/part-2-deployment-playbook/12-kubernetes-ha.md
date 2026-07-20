@@ -3,7 +3,8 @@
 > **Version áp dụng:** Dify Community `1.15.0`, commit `3aa26fb6374bbd47e5469f7d7cc25f3e0075a60c`  
 > **Loại kiến trúc:** Reference architecture/design pattern nội bộ; **không phải Helm chart Community chính thức của Dify**  
 > **Ngày kiểm chứng:** `2026-07-16`  
-> **Trạng thái xác minh:** `Official-source verified` + `Design reviewed`; toàn bộ Kubernetes runtime/HA test đang `RUNTIME-PENDING`  
+> **Trạng thái xác minh:** `Official-source verified` + `Design reviewed` qua cross-review nội bộ; specialist review và toàn bộ Kubernetes runtime/HA test vẫn `RUNTIME-PENDING`
+>
 > **Reviewer:** Platform/SRE/Security/Database review pending
 
 ## Mục tiêu
@@ -78,7 +79,7 @@ Kubernetes `Deployment` phù hợp với tập Pod stateless và cung cấp decl
 | `api_websocket` | Deployment + Service | `2+` sau session/affinity test | Route `/socket.io`; connection drain và Redis/shared-state behavior phải test |
 | `worker` | Nhiều Deployment theo queue group | Min `1–2` mỗi critical group | Scale theo queue depth/oldest age; task redelivery/idempotency cần test |
 | `worker_beat` | Singleton Deployment, `Recreate`, không HPA | `1` | Chưa có bằng chứng leader election; overlap có thể phát task trùng |
-| `plugin_daemon` | Singleton Deployment trong CE | `1` | README chính thức nói CE chưa scale-out trơn tru trên Kubernetes; đây là SPOF [S-032] |
+| `plugin_daemon` | Singleton Deployment, rollout `Recreate`, không HPA trong CE | `1` | Không cho surge/overlap hai Pod; README chính thức nói CE chưa scale-out trơn tru trên Kubernetes; đây là SPOF [S-032] |
 | `sandbox` | Deployment + ClusterIP Service | `2+` sau isolation/load test | Dependency/config phải immutable hoặc được quản trị; không dùng host path |
 | `ssrf_proxy` | Deployment + ClusterIP Service | `2+` | ConfigMap immutable/versioned; egress policy và bypass test bắt buộc |
 | migration/backfill | Kubernetes Job | `parallelism: 1`, `completions: 1` | Chạy trước rollout và lưu log; Job là one-off task chạy tới completion [S-086] |
@@ -123,6 +124,8 @@ Khuyến nghị tách ít nhất ba class sau khi có traffic model:
 Queue list phải lấy từ đúng entrypoint release, không copy cố định từ tài liệu này sang release sau. Chỉ chọn **một** control loop chính: pod HPA với fixed per-Pod concurrency, hoặc Celery internal autoscale với replica count được quản trị riêng. Chạy cả hai mà chưa mô hình hóa có thể gây oscillation, connection storm và vượt provider quota.
 
 `worker_beat` chỉ phát lịch; không scale theo backlog. Source entrypoint khởi động một Celery beat process và không cung cấp bằng chứng version-pinned về distributed leader election. [S-013] Reference dùng một replica, rollout `Recreate`, không HPA; duplicate/missed schedule phải được failure-test.
+
+`plugin_daemon` CE cũng phải có rollout **không overlap**. Deployment một replica với `RollingUpdate` mặc định vẫn có thể tạo Pod surge trước khi xóa Pod cũ, trái với giả định singleton và có thể làm hai plugin runtime cùng chạm DB/storage. Reference dùng `strategy.type: Recreate` hoặc một controller tương đương đã chứng minh `max active daemon = 1`; chấp nhận maintenance gap, drain/cô lập Pod cũ, rồi test API → daemon invocation và daemon → API inner callback trước khi mở traffic. Không dùng `maxSurge: 0` như tuyên bố đủ nếu controller/custom rollout vẫn có đường tạo daemon thứ hai.
 
 ### 4. Stateful dependencies và shared state
 
@@ -258,7 +261,8 @@ flowchart TB
     Workers --> Vector
     Workers --> Object
     Beat --> Redis
-    API --> Plugin
+    API -->|"invoke plugin / model"| Plugin
+    Plugin -->|"DIFY_INNER_API_URL + inner key"| API
     Workers --> Plugin
     Plugin --> PluginDB
     Plugin --> PluginStore
@@ -275,7 +279,7 @@ flowchart TB
     Migration -.-> Telemetry
 ```
 
-Sơ đồ là target logical topology, không phải evidence rằng placement đa zone, quorum hoặc failover đã đạt. Node `Placement` là gate phải chứng minh bằng rendered manifest, scheduler placement và failure test; state boundary giao semantics HA cho provider/operator. Web không được cấp đường trực tiếp tới state store; Beat chỉ đi Redis. NetworkPolicy cho API, worker, plugin daemon và migration phải bám đúng các cạnh riêng thay vì một policy “all services → all state”. Dependency runtime của WebSocket vẫn phải được capture trong lab trước khi siết policy. Đặc biệt, plugin daemon Community vẫn là known gap; WebSocket, sandbox và worker shutdown semantics phải qua lab. [S-032]
+Sơ đồ là target logical topology, không phải evidence rằng placement đa zone, quorum hoặc failover đã đạt. Node `Placement` là gate phải chứng minh bằng rendered manifest, scheduler placement và failure test; state boundary giao semantics HA cho provider/operator. Web không được cấp đường trực tiếp tới state store; Beat chỉ đi Redis. NetworkPolicy cho API, worker, plugin daemon và migration phải bám đúng các cạnh riêng thay vì một policy “all services → all state”. Với plugin daemon, policy phải cho phép cả API/worker → daemon invocation và daemon → API inner callback qua đúng Service/port/key, nhưng không public inner API. Dependency runtime của WebSocket vẫn phải được capture trong lab trước khi siết policy. Đặc biệt, plugin daemon Community vẫn là known gap; WebSocket, sandbox và worker shutdown semantics phải qua lab. [S-032]
 
 ### D10B — Release/migration gate
 
@@ -349,7 +353,7 @@ Tên key sau đây là **contract đề xuất**, không phải schema Helm chí
 | `api/web/websocket` | Replicas, resources, probes, rollout, PDB/HPA |
 | `workers[]` | Queue list, concurrency, resources, HPA metrics/min/max |
 | `beat` | Singleton strategy and scheduler freshness alert |
-| `pluginDaemon` | Singleton CE acceptance, storage/runtime and debug disabled |
+| `pluginDaemon` | Singleton CE acceptance, `Recreate`/no-overlap rollout, API inner callback policy, storage/runtime và debug disabled |
 | `migration` | Enabled, timeout, retry/backoff, release-specific commands |
 | `edge` | Host, TLS, routes, timeouts, upload limit, WebSocket/SSE settings |
 | `security` | ServiceAccount, network policies, pod/container security, secret provider |
@@ -366,7 +370,7 @@ Trước khi tạo resource:
 4. Tính DB connection budget từ tổng API/worker replicas × process concurrency × pool; giữ headroom cho migration, admin và failover.
 5. Pin mọi image bằng digest và lưu scan/SBOM/signature evidence.
 6. Render chart, lint, schema-validate và server-side dry-run trên cluster version mục tiêu.
-7. Kiểm tra rendered manifest không chứa plaintext secret, host path, mutable `latest`, public debug port hoặc `MIGRATION_ENABLED=true` trên long-lived workloads.
+7. Kiểm tra rendered manifest không chứa plaintext secret, host path, mutable `latest`, public debug port hoặc `MIGRATION_ENABLED=true` trên long-lived workloads; plugin daemon CE phải có no-overlap strategy và NetworkPolicy hai chiều đúng với API inner path.
 
 Lệnh tham khảo trong CI:
 
@@ -384,10 +388,10 @@ Output render có thể chứa endpoint hoặc material nhạy cảm; redaction 
 2. Apply ServiceAccount/RBAC, secret references, ConfigMap và NetworkPolicy.
 3. Chạy migration Job; giữ log và completion status.
 4. Chạy release-specific backfill Job nếu có.
-5. Deploy singleton beat/plugin daemon theo accepted risk.
+5. Deploy singleton beat và plugin daemon theo accepted risk; cả hai dùng no-overlap strategy và chưa mở traffic/side effect.
 6. Deploy sandbox/SSRF proxy và internal Services.
 7. Rollout API/web/WebSocket/worker theo canary hoặc controlled rolling update.
-8. Apply Ingress/Gateway; kiểm tra HTTP, SSE, WebSocket, file upload và callback.
+8. Khi API và daemon cùng ready, chạy positive/negative auth test hai chiều API ↔ daemon; sau đó mới apply Ingress/Gateway và kiểm tra HTTP, SSE, WebSocket, file upload/callback.
 9. Apply HPA/PDB sau khi base resource request và metrics đã xác nhận.
 10. Chạy test matrix; chỉ promote khi quality/security/restore gates đạt.
 
@@ -395,27 +399,27 @@ Output render có thể chứa endpoint hoặc material nhạy cảm; redaction 
 
 Mọi dòng dưới đây khởi đầu là `RUNTIME-PENDING`.
 
-| Nhóm | Test/injection | Pass criteria cần định lượng | Evidence cần lưu |
-|---|---|---|---|
-| Baseline | Install clean namespace từ immutable artifacts | Tất cả rollout/Job hoàn tất; smoke app/RAG/plugin theo scope | Manifest digest, Pod/Job status, run IDs |
-| Rollout | Update API/web/worker image hoặc config | Không vượt error/latency budget; connection/task drain đúng | Rollout events, request/task traces |
-| Pod failure | Xóa một API/web/WS/worker/sandbox/proxy Pod | Service duy trì trong SLO; replacement ready đúng thời hạn | Timeline, alerts, p95/p99 |
-| Node drain | Drain node chứa nhiều Dify Pod | PDB được tôn trọng; replica chuyển node; critical queue còn consumer | Eviction events, topology before/after |
-| Zone failure | Mất một failure domain trong test environment | Stateless traffic tiếp tục; stateful dependency đạt RTO/RPO test | Failover timeline, data checks |
-| Worker autoscale | Tạo backlog riêng từng queue group | Chỉ đúng worker group scale; backlog age về target; không vượt DB/provider limit | HPA metric/decision, queue graphs |
-| Worker termination | Kill worker giữa task dài | Task hoàn tất hoặc redeliver theo contract; không duplicate side effect ngoài policy | Task IDs, retry/redelivery logs |
-| Beat singleton | Rollout/restart/drain beat | Không có hai scheduler active ngoài window đã chấp nhận; không duplicate/missed critical schedule | Scheduler identity, emitted task IDs |
-| Migration | Chạy success, failure và accidental concurrent attempt | Chỉ một execution được pipeline cho phép; failure chặn rollout; DB nhất quán | Job logs, DB revision, release gate |
-| PostgreSQL | Failover primary/connection interruption | API/worker recover trong target; không corrupt/mất committed data | DB events, connection/error metrics |
-| Redis | Sentinel/Cluster/managed failover | Broker/event/cache paths phục hồi; queued/streaming behavior đúng contract | Queue/event traces, lost/duplicate count |
-| Vector store | Restart/failover/unavailable | Non-RAG impact được giới hạn; RAG fail/degrade theo policy; index còn đúng | Retrieval golden set trước/sau |
-| Object storage | Timeout/unavailable/restore object | Upload/download/knowledge failure rõ; không mất metadata consistency | Object/version IDs, app traces |
-| Plugin daemon | Restart singleton và invoke plugin | Recovery đạt target; app dependency failure có tín hiệu; state còn đúng | Install/invoke result, storage check |
-| Ingress | SSE dài, WebSocket reconnect, large upload, `/e/` callback | Không cắt sớm; route/auth/TLS đúng; denied path bị chặn | Edge logs, connection duration |
-| Probes | Làm dependency chậm/down | Readiness loại traffic; liveness không tạo restart storm | Probe events, restart count |
-| Secret rotation | Rotate DB/Redis/Dify/plugin/provider secrets | Consumer chuyển đồng bộ; old secret revoked; smoke pass | Secret version refs, audit, smoke IDs |
-| Backup/restore | Restore vào namespace/cluster sạch | App, file, knowledge/vector và plugin state đạt RPO/RTO | Backup IDs, restore log, checksum/test set |
-| Security | NetworkPolicy, service-account, pod-security và SSRF negative tests | Unauthorized network/API/secret/private-target access bị chặn | Deny logs, policy report |
+| ID | Nhóm | Test/injection | Pass criteria cần định lượng | Accountable owner / control | Evidence cần lưu |
+|---|---|---|---|---|---|
+| HA-01 | Baseline | Install clean namespace từ immutable artifacts | Tất cả rollout/Job hoàn tất; smoke app/RAG/plugin theo scope | Platform/Release · CFG-K8S-003/004 | Manifest digest, Pod/Job status, run IDs |
+| HA-02 | Rollout | Update API/web/worker image hoặc config | Không vượt error/latency budget; connection/task drain đúng | Platform/SRE · CFG-K8S-009 | Rollout events, request/task traces |
+| HA-03 | Pod failure | Xóa một API/web/WS/worker/sandbox/proxy Pod | Service duy trì trong SLO; replacement ready đúng thời hạn | SRE · CFG-K8S-016 | Timeline, alerts, p95/p99 |
+| HA-04 | Node drain | Drain node chứa nhiều Dify Pod | PDB được tôn trọng; replica chuyển node; critical queue còn consumer | Platform/SRE · CFG-K8S-010/016 | Eviction events, topology before/after |
+| HA-05 | Zone failure | Mất một failure domain trong test environment | Stateless traffic tiếp tục; stateful dependency đạt RTO/RPO test | Service owner/SRE · CFG-K8S-016 | Failover timeline, data checks |
+| HA-06 | Worker autoscale | Tạo backlog riêng từng queue group | Chỉ đúng worker group scale; backlog age về target; không vượt DB/provider limit | Platform · CFG-K8S-006 | HPA metric/decision, queue graphs |
+| HA-07 | Worker termination | Kill worker giữa task dài | Task hoàn tất hoặc redeliver theo contract; không duplicate side effect ngoài policy | App/Platform · CFG-RUN-009 | Task IDs, retry/redelivery logs |
+| HA-08 | Beat singleton | Rollout/restart/drain beat | Không có hai scheduler active ngoài window đã chấp nhận; không duplicate/missed critical schedule | Platform/App · CFG-RUN-004, CFG-K8S-007 | Scheduler identity, emitted task IDs |
+| HA-09 | Migration | Chạy success, failure và accidental concurrent attempt | Chỉ một execution được pipeline cho phép; failure chặn rollout; DB nhất quán | Release/DBA · CFG-K8S-005, CFG-REL-013 | Job logs, DB revision, release gate |
+| HA-10 | PostgreSQL | Failover primary/connection interruption | API/worker recover trong target; không corrupt/mất committed data | DBA · CFG-K8S-015 | DB events, connection/error metrics |
+| HA-11 | Redis | Sentinel/Cluster/managed failover | Broker/event/cache paths phục hồi; queued/streaming behavior đúng contract | Platform/Cache owner · CFG-K8S-015 | Queue/event traces, lost/duplicate count |
+| HA-12 | Vector store | Restart/failover/unavailable | Non-RAG impact được giới hạn; RAG fail/degrade theo policy; index còn đúng | Data/RAG · CFG-K8S-015 | Retrieval golden set trước/sau |
+| HA-13 | Object storage | Timeout/unavailable/restore object | Upload/download/knowledge failure rõ; không mất metadata consistency | Storage owner · CFG-K8S-015 | Object/version IDs, app traces |
+| HA-14 | Plugin daemon | Rollout/restart singleton, invoke plugin và callback inner API | Không có hai daemon active; recovery đạt target; hai chiều API ↔ daemon đúng auth; state còn đúng | Platform/Integration · CFG-RUN-005, CFG-K8S-017 | Pod UID/timeline, install/invoke/callback result, storage check |
+| HA-15 | Ingress | SSE dài, WebSocket reconnect, large upload, `/e/` callback | Không cắt sớm; route/auth/TLS đúng; denied path bị chặn | Network/Platform · CFG-K8S-011 | Edge logs, connection duration |
+| HA-16 | Probes | Làm dependency chậm/down | Readiness loại traffic; liveness không tạo restart storm | SRE/Platform · CFG-K8S-008 | Probe events, restart count |
+| HA-17 | Secret rotation | Rotate DB/Redis/Dify/plugin/provider secrets | Consumer chuyển đồng bộ; old secret revoked; smoke pass | Security/Platform · CFG-ENV-004–010 | Secret version refs, audit, smoke IDs |
+| HA-18 | Backup/restore | Restore vào namespace/cluster sạch | App, file, knowledge/vector và plugin state đạt RPO/RTO | SRE/DBA/Data · CFG-BKP-003–012 | Backup IDs, restore log, checksum/test set |
+| HA-19 | Security | NetworkPolicy, service-account, pod-security và SSRF negative tests | Unauthorized network/API/secret/private-target access bị chặn | Security/Network · CFG-K8S-012–014 | Deny logs, policy report |
 
 ### 6. Evidence bundle cho mỗi release
 
@@ -441,11 +445,11 @@ Mọi dòng dưới đây khởi đầu là `RUNTIME-PENDING`.
 | Worker layout | Deployment theo queue class | Một worker consume tất cả queue cho POC nhỏ | Tách queue cô lập blast radius nhưng tăng vận hành và capacity planning |
 | Worker scaling | HPA `autoscaling/v2` bằng backlog/age + resource | Fixed replica hoặc Celery internal autoscale | Custom metrics cần adapter; dual control loop dễ oscillate [S-081] |
 | Beat | Một replica, `Recreate` | Distributed scheduler chỉ sau evidence | Singleton có failover gap; multiple replica có duplicate risk |
-| Plugin daemon CE | Một replica + accepted SPOF | Enterprise/topology được vendor support | CE README nói scale-out K8s chưa trơn tru [S-032] |
+| Plugin daemon CE | Một replica + `Recreate`/no-overlap + accepted SPOF | Enterprise/topology được vendor support | CE README nói scale-out K8s chưa trơn tru; no-overlap đổi lại có maintenance gap [S-032] |
 | Edge API | Gateway theo platform roadmap | Ingress khi controller hiện hữu đáp ứng | Ingress GA nhưng frozen; implementation-specific annotations [S-085] |
 | Migration | Pipeline-controlled Job | Helm hook khi lifecycle/error propagation được chứng minh | Job dễ audit; schema rollback vẫn là risk [S-086] |
 | PDB | Replicated critical workload | Không PDB ở disposable/noncritical workload | PDB chỉ voluntary disruption và có thể block maintenance [S-082] |
-| Rollout | Canary/controlled rolling với readiness/drain | Recreate cho singleton beat | Rolling cần capacity surge và backward compatibility |
+| Rollout | Canary/controlled rolling với readiness/drain | `Recreate` cho singleton beat và plugin daemon CE | Rolling cần capacity surge và backward compatibility; singleton CE không được surge |
 
 ### Community hay Enterprise cho HA
 
@@ -538,6 +542,7 @@ Không tuyên bố RPO/RTO từ việc backup Job `Succeeded`. Restore phải ch
 | File có ở Pod này nhưng mất ở Pod khác | Local/ephemeral/host-path storage | Pod-dependent read result | Chuyển shared backend; restore/reconcile object/metadata |
 | Redis failover làm queue/stream lỗi | Topology hoặc Celery/event path chưa tương thích | Broker reconnect, lost/duplicate events/tasks | Test đúng Sentinel/Cluster/managed mode; không suy từ client support [S-039] |
 | Vector store đổi nhưng knowledge mất | Config đổi mà index chưa migrate/rebuild | Dataset index struct, collection, empty retrieval | Roll back endpoint; chạy migration/reindex plan [S-056] |
+| Hai plugin daemon CE cùng active lúc rollout | `RollingUpdate`/surge hoặc controller khác không giữ singleton | Pod UID/timeline, strategy, daemon log và DB/storage access | Freeze rollout; cô lập Pod mới, khôi phục một daemon; chuyển sang `Recreate`/no-overlap và chạy HA-14 |
 | Plugin call mất sau Pod restart | Singleton/storage/runtime state hoặc plugin process | Daemon log, package/cwd, plugin DB | Restore/reinstall theo runbook; đo RTO; xem Enterprise nếu critical [S-032] |
 | Sandbox bypass/outage | NetworkPolicy/proxy/config hoặc insufficient replica | Code execution/SSRF negative test | Cô lập, revoke egress, restore known config, security review |
 | Secret rotation gây outage | Producer/consumer version lệch | Auth failure theo component | Dual-secret/ordered rotation khi hỗ trợ; smoke rồi revoke old |
@@ -551,7 +556,7 @@ Không tuyên bố RPO/RTO từ việc backup Job `Succeeded`. Restore phải ch
 - [x] API/web/WebSocket/worker/beat/plugin/sandbox/proxy được map sang workload pattern.
 - [x] Migration được tách thành one-shot Job; long-lived Pod tắt migration.
 - [x] Worker queue/concurrency/autoscaling controls được phân biệt.
-- [x] Beat singleton và Community plugin-daemon HA gap được ghi rõ.
+- [x] Beat singleton và Community plugin-daemon HA gap/no-overlap rollout được ghi rõ.
 - [x] PostgreSQL, Redis, vector, application storage và plugin storage có ownership/gate.
 - [x] HPA, PDB, probes, Ingress/Gateway, secrets, backup/restore được bao phủ.
 - [x] Mermaid architecture và release sequence được nhúng trực tiếp.

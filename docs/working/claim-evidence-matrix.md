@@ -4,7 +4,7 @@
 
 | Claim ID | Chương | Claim cần kiểm chứng | Mức quan trọng | Source ID | Validation ID | Nhãn xác minh | Owner | Trạng thái | Ghi chú |
 |---|---|---|---|---|---|---|---|---|---|
-| C-001 | 00 | Community baseline là Dify 1.15.0, release chính thức ngày 2026-06-25, commit `3aa26fb…` | Critical | S-001, S-002, S-024 | V-001, V-002 | Official-source verified | Lead author | Accepted | Recheck tại G5 |
+| C-001 | 00 | Community baseline là Dify 1.15.0, release chính thức ngày 2026-06-25, commit `3aa26fb…` | Critical | S-001, S-002, S-024 | V-001, V-002 | Official-source verified | Lead author | Accepted | Recheck tại `DOC-G5` |
 | C-002 | 00 | Docs baseline là `release/1.15.0` snapshot commit `57a492d…` | Critical | S-020, S-025 | V-003 | Official-source verified | Lead author | Accepted | Pin immutable commit trong citation final |
 | C-003 | 10 | License là modified Apache 2.0 với điều kiện bổ sung về multi-tenant và logo/copyright | Critical | S-004 | V-007 | Requires Legal confirmation | Legal owner | Evidence complete | Exact text có nguồn; legal classification còn mở |
 | C-004 | 00, 02, 11 | Compose mặc định có 6 core services, 6 dependent components và 1 init task | High | S-005, S-007 | V-004 | Config validated | Platform author | Accepted | Runtime lab pending |
@@ -80,3 +80,4 @@
 | C-074 | 19 | GPU telemetry giúp đo utilization/workload nhưng không phải invoice hoặc proof rằng self-host model đạt quality/SLO/cost equivalence | High | S-109 | — | Design reviewed | AI Platform/FinOps | Accepted | Benchmark candidate serving stack pending |
 | C-075 | 19 | Break-even giữa external API, Enterprise và self-host chỉ có ý nghĩa khi quality, capability, data policy, SLO và capacity interval tương đương | Critical | S-018, S-019, S-106 | — | Design reviewed | Product/Finance/Architecture | Accepted | Chưa đủ input để công bố break-even |
 | C-076 | 02, 07 | MCP tool path dùng MCP client trong API core để kết nối remote MCP server; không đi qua plugin daemon như model-plugin dispatch | Critical | S-014, S-038, S-119, S-120 | — | Official-source verified | Platform/Integration author | Accepted | Tách NetworkPolicy, telemetry và failure domain khỏi plugin-backed path |
+| C-077 | 00, 02, 05, 07, 11, 13, 15, 16 | Tại drift check ngày 2026-07-20, `1.16.0` là stable mới hơn; `1.15.0` vẫn là baseline immutable tái lập được nhưng không còn là latest, và không được nâng cơ học khi Agent runtime, Compose/env, migration, OpenAI và MCP đều có delta | Critical | S-121, S-122 | V-013 | Official-source verified | Tech lead/Platform | Accepted | Mở impact review G-053 trước khi đổi baseline hoặc dùng runbook cho `1.16.0` |

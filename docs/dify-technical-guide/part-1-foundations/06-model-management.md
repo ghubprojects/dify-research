@@ -2,7 +2,8 @@
 
 > **Version áp dụng:** Dify Community `1.15.0`; docs snapshot `57a492d8063d1583c582b4c0444fb838c6dd3027`  
 > **Ngày kiểm chứng:** `2026-07-16`  
-> **Trạng thái xác minh:** `Official-source verified` + `Design reviewed`; provider/runtime test đang `RUNTIME-PENDING`  
+> **Trạng thái xác minh:** `Official-source verified` + `Design reviewed` qua cross-review nội bộ; specialist review và provider/runtime test vẫn `RUNTIME-PENDING`
+>
 > **Reviewer:** AI Platform/Security/FinOps review pending
 
 ## Mục tiêu

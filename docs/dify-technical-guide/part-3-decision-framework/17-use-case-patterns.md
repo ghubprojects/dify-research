@@ -2,7 +2,8 @@
 
 > **Version áp dụng:** Dify Community Edition `1.15.0`  
 > **Ngày kiểm chứng:** `2026-07-16`  
-> **Trạng thái xác minh:** `Official-source verified` + `Design reviewed`; scenario/runtime validation đang `RUNTIME-PENDING`  
+> **Trạng thái xác minh:** `Official-source verified` + `Design reviewed` qua cross-review nội bộ; specialist review và scenario/runtime validation vẫn `RUNTIME-PENDING`
+>
 > **Reviewer:** Product, Architecture, Security và Operations review pending
 
 ## Mục tiêu
@@ -106,7 +107,7 @@ flowchart TD
     Measure --> Decision{"Go / revise / stop"}
 ```
 
-Cây này không chọn model, vector database hoặc edition thay đội dự án. Nó xác định câu hỏi tiếp theo và ngăn topology/Agent bị chọn trước khi có business contract.
+Cây này không chọn model, vector database hoặc edition thay cho đội dự án. Nó xác định câu hỏi tiếp theo và ngăn topology/Agent bị chọn trước khi có business contract.
 
 ## Hướng dẫn hoặc ví dụ triển khai
 

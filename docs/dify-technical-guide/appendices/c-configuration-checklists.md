@@ -188,7 +188,7 @@ Không nâng một item từ `SOURCE/CONFIG/DESIGN` thành `RUNTIME-VALIDATED` c
 | CFG-RUN-002 | Worker functional health dùng synthetic queued task/queue age; không dựa vào healthcheck bị disable mặc định. | D/S/P | SRE | Task ID + completion/alert | RUNTIME · Ch.11/15 | `RUNTIME-PENDING` |
 | CFG-RUN-003 | Worker concurrency/autoscale/pool/queue routing khớp workload, DB connection và provider quota. | S/P | Platform/AI Platform | Load/queue evidence | RUNTIME · Ch.12/14 | `RUNTIME-PENDING` |
 | CFG-RUN-004 | Beat là singleton; duplicate/missed schedule và failover behavior đã test. | S/P | Platform/App | Scheduler failure test | RUNTIME · Ch.12/15 | `RUNTIME-PENDING` |
-| CFG-RUN-005 | Plugin daemon được coi là critical path cho plugin và model call; health/storage/DB/key có owner. | D/S/P | Platform/AI Platform | Plugin/model synthetic test | RUNTIME · Ch.11/14 | `RUNTIME-PENDING` |
+| CFG-RUN-005 | Plugin daemon là critical path; API/worker → daemon invocation và daemon → Dify inner API callback có Service/port/key owner, positive/negative auth test; inner API không public. | D/S/P | Platform/AI Platform | Hai chiều connectivity/auth + plugin/model synthetic IDs | RUNTIME · Ch.11–14 | `RUNTIME-PENDING` |
 | CFG-RUN-006 | Plugin provenance/signature/update policy đạt; debug/inner API không public. | D/S/P | Security/Platform | Plugin inventory + network scan | RUNTIME · Ch.13 | `RUNTIME-PENDING` |
 | CFG-RUN-007 | Sandbox image/key/network/resource/time limit và code-execution policy được review. | D/S/P | Security/Platform | Config + positive/negative test | RUNTIME · Ch.11/13 | `RUNTIME-PENDING` |
 | CFG-RUN-008 | SSRF proxy config/version/allow-deny path được version hóa và negative-test. | S/P | Security/Platform | Config hash + test IDs | RUNTIME · Ch.13 | `RUNTIME-PENDING` |
@@ -205,7 +205,7 @@ Không nâng một item từ `SOURCE/CONFIG/DESIGN` thành `RUNTIME-VALIDATED` c
 | CFG-K8S-004 | API/web/WebSocket/sandbox/proxy workload type, Service và replica strategy khớp reference/risk. | S/P (K8s) | Platform | Rendered workload inventory | CONFIG · Ch.12 [S-079] | `CONFIG-PENDING` |
 | CFG-K8S-005 | Migration/backfill chạy trong environment-exclusive lock và singleton Job; long-lived API/worker/beat đặt migration disabled. | S/P (K8s) | Release/DBA | Lease/fencing + Job/Deployment env + run log | RUNTIME · Ch.12 [S-013][S-086] | `RUNTIME-PENDING` |
 | CFG-K8S-006 | Worker được tách/routing theo queue khi cần; chỉ một autoscaling control loop chính và có connection/quota budget. | S/P (K8s) | Platform | HPA/queue config + load test | RUNTIME · Ch.12 [S-081] | `RUNTIME-PENDING` |
-| CFG-K8S-007 | Beat singleton, không HPA; plugin daemon CE singleton/SPOF được risk-accept hoặc thay bằng supported option. | P (K8s) | Service owner | Risk decision + failure test | DESIGN · Ch.12 [S-032] | `DESIGN-PENDING` |
+| CFG-K8S-007 | Beat singleton, không HPA; plugin daemon CE singleton/SPOF/no-overlap requirement được risk-accept hoặc thay bằng supported option. | P (K8s) | Service owner | Risk decision + failure test | DESIGN · Ch.12 [S-032] | `DESIGN-PENDING` |
 | CFG-K8S-008 | Startup/readiness/liveness probe có đúng semantics; functional canary nằm ngoài probe. | S/P (K8s) | Platform/SRE | Probe config + failure test | RUNTIME · Ch.12 [S-083] | `RUNTIME-PENDING` |
 | CFG-K8S-009 | Resource request/limit, termination grace, preStop và rollout strategy dựa trên load/drain test. | S/P (K8s) | Platform | Load/drain evidence | RUNTIME · Ch.12 | `RUNTIME-PENDING` |
 | CFG-K8S-010 | PDB, anti-affinity/topology spread và zone/node placement không vượt replica/quorum thực. | P (K8s) | Platform | Scheduling/PDB config + disruption test | RUNTIME · Ch.12 [S-082] | `RUNTIME-PENDING` |
@@ -215,6 +215,7 @@ Không nâng một item từ `SOURCE/CONFIG/DESIGN` thành `RUNTIME-VALIDATED` c
 | CFG-K8S-014 | Pod/container security context, capability, filesystem, hostPath/privileged exception và image policy đạt. | S/P (K8s) | Security | Policy report + negative deploy test | RUNTIME · Ch.12/13 | `RUNTIME-PENDING` |
 | CFG-K8S-015 | PostgreSQL, Redis, vector và shared object/plugin storage có HA/backup/failover owner; StatefulSet không bị coi tự động là HA. | P (K8s) | Platform/Data | Dependency design + failure/restore tests | RUNTIME · Ch.12 [S-080] | `RUNTIME-PENDING` |
 | CFG-K8S-016 | Node/zone drain, replica loss, metric loss, dependency failover và restore đạt SLO/RPO/RTO. | P (K8s) | SRE | Ch.12/15 test evidence | RUNTIME · Ch.12/15 | `RUNTIME-PENDING` |
+| CFG-K8S-017 | Plugin daemon CE dùng `Recreate`/no-overlap strategy; rollout chứng minh tối đa một daemon active và hai chiều API ↔ daemon vẫn đúng auth sau recovery. | S/P (K8s) | Platform/Integration | Rendered strategy + Pod UID/timeline + invoke/callback test IDs | RUNTIME · Ch.12/13 | `RUNTIME-PENDING` |
 
 ## Security
 
@@ -329,14 +330,32 @@ Không nâng một item từ `SOURCE/CONFIG/DESIGN` thành `RUNTIME-VALIDATED` c
 | CFG-REL-010 | Dev chạy static/unit/contract phù hợp; không dùng production secret/data. | D | App/Release | Test report + secret/data proof | RUNTIME · Ch.16 | `RUNTIME-PENDING` |
 | CFG-REL-011 | Staging deploy đúng production-candidate digest/config schema và chạy integration/security/provider/RAG/failure tests. | S | Release/QA | Staging evidence index | RUNTIME · Ch.11–16 | `RUNTIME-PENDING` |
 | CFG-REL-012 | Production approval yêu cầu đúng owner: Platform, Security, DBA/Data, App, Operations và Privacy/Legal khi áp dụng. | P | Release approver | Approval record | DESIGN · Ch.16 | `DESIGN-PENDING` |
-| CFG-REL-013 | Backup/restore point pass trước migration; atomic environment lock, singleton migration và release-specific backfill chặn concurrent rollout/lỗi. | S/P | Release/DBA | Recovery + lock/fencing + Job/command logs | RUNTIME · Ch.12/15/16 [S-001][S-013] | `RUNTIME-PENDING` |
-| CFG-REL-014 | Production deploy dùng cùng digest staging; rollout có readiness/drain và không mở side effect trước gate. | P | Release/SRE | Digest compare + rollout timeline | RUNTIME · Ch.12/16 | `RUNTIME-PENDING` |
+| CFG-REL-013 | Mỗi staging/production có recovery point riêng trước migration; atomic environment lock, singleton migration/backfill rồi mới rollout long-lived service với migration disabled. | S/P | Release/DBA | Per-environment recovery ID + lock/fencing + Job/command/DB revision logs | RUNTIME · Ch.12/15/16 [S-001][S-013] | `RUNTIME-PENDING` |
+| CFG-REL-014 | Production dùng cùng digest staging nhưng lock/recovery/migration evidence riêng; rollout có readiness/drain và không mở side effect trước smoke gate. | P | Release/SRE | Digest compare + production lock/RPID + rollout timeline | RUNTIME · Ch.12/16 | `RUNTIME-PENDING` |
 | CFG-REL-015 | Post-deploy smoke bao phủ auth/API, queued task, workflow/model, retrieval, plugin, file và SLO watch. | S/P | SRE/App | Smoke IDs + observation window | RUNTIME · Ch.11/14/15 | `RUNTIME-PENDING` |
 | CFG-REL-016 | Rollback/roll-forward decision window, authority và trigger metric được định nghĩa; schema change dùng restore rehearsal. | P | Release/Service owner | Rollback decision + drill | RUNTIME · Ch.15/16 | `RUNTIME-PENDING` |
 | CFG-REL-017 | Drift detection so actual với signed rendered manifest; reconciliation không overwrite state/secret ngoài approval. | S/P | Platform | Drift/reconcile test | RUNTIME · Ch.16 | `RUNTIME-PENDING` |
 | CFG-REL-018 | Evidence store có retention, immutability, ACL, redaction và link từ release/incident; không lưu secret/dump thường. | S/P | Release/Security | Evidence-store audit | RUNTIME · Ch.15/16 | `RUNTIME-PENDING` |
 | CFG-REL-019 | Promotion dừng khi item critical còn pending/fail hoặc risk acceptance hết hạn; không bypass bằng manual rerun không audit. | P | Release approver | Gate policy + negative test | RUNTIME · Ch.16 | `RUNTIME-PENDING` |
 | CFG-REL-020 | Sau release, baseline/config/evidence index/change log và action từ incident/drill được cập nhật có owner/deadline. | S/P | Release/Service owner | Closed change + action register | RUNTIME · Ch.15/16 | `RUNTIME-PENDING` |
+
+### Crosswalk test suite → control/evidence
+
+Các matrix `SEC-*`, `HA-*` và `CI-*` ghi trực tiếp accountable owner, CFG control và evidence bắt buộc tại Chương 13, 12 và 16. Matrix `OPS-*` ở Chương 15 dùng RACI chi tiết của chương; crosswalk tối thiểu dưới đây ngăn test ID bị tách khỏi control/evidence khi đưa vào evidence index.
+
+| Test ID | CFG control chính | Accountable owner | Evidence anchor tối thiểu |
+|---|---|---|---|
+| OPS-01–02 | CFG-OBS-002–004 | Service owner/SRE | Alert timeline, SLI query, queued synthetic/task IDs và recovery result |
+| OPS-03–05 | CFG-BKP-005/011/012 | DBA | Dump/PITR metadata, restore logs, DB checks và observed RPO/RTO |
+| OPS-06–08 | CFG-BKP-006/007/011/012 | Storage/Data owner | Object/vector backup hoặc rebuild IDs, checksums, golden retrieval và duration |
+| OPS-09–10 | CFG-BKP-008 | Platform/App owner | Redis decision, key-class inventory, task/downstream replay audit |
+| OPS-11–12 | CFG-BKP-003–012 | Service owner/SRE/Security | Full recovery manifest, secret version IDs, acceptance IDs và sign-off |
+| OPS-13–15 | CFG-BKP-013, CFG-REL-013/016 | Release/DBA | Lock/migration/backfill logs, schema head, RPID và rollback/restore evidence |
+| OPS-16–18 | CFG-BKP-014–016 | Incident commander/SRE | DR timeline, fencing proof, DNS/write audit và RPO/RTO result |
+| OPS-19 | CFG-OBS-008/009 | SRE | Load profile, capacity/backup metrics, bottleneck và updated forecast |
+| OPS-20 | CFG-BKP-010 | Security/SRE | Credential revoke/rotate timeline, access audit và backup integrity check |
+| OPS-21 | CFG-RUN-010, CFG-BKP-011 | App/Security | Network/audit evidence chứng minh không có production side effect |
+| OPS-22 | CFG-BKP-017 | Incident commander | Tabletop timeline, role/comms evidence và PIR actions có owner/deadline |
 
 ### Final sign-off summary
 
